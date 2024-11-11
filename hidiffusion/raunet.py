@@ -205,8 +205,8 @@ def apply_rau_net(
         HDCONFIG.enabled = False
         if ORIG_FORWARD_TIMESTEP_EMBED is not None:
             unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
-        if unet_patcher.apply_control is not ORIG_APPLY_CONTROL and not NO_CONTROLNET_WORKAROUND:
-            unet_patcher.apply_control = ORIG_APPLY_CONTROL
+        if unet.apply_control is not ORIG_APPLY_CONTROL and not NO_CONTROLNET_WORKAROUND:
+            unet.apply_control = ORIG_APPLY_CONTROL
         return (unet_patcher,)
 
     # Access model_sampling through the actual model object
