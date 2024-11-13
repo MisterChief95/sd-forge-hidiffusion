@@ -1,12 +1,13 @@
 import logging
 
 import gradio as gr
-from backend.patcher.unet import UnetPatcher
 from modules import scripts
+from modules.script_callbacks import remove_current_script_callbacks
 
 # Now import from your package
-from hidiffusion.raunet import apply_rau_net, apply_rau_net_simple, UPSCALE_METHODS
+from hidiffusion.raunet import apply_monkey_patch, remove_monkey_patch, apply_rau_net, apply_rau_net_simple, UpscaleMethod
 from hidiffusion.attention import apply_mswmsaa_attention, apply_mswmsaa_attention_simple
+from hidiffusion.utils import ModelType
 
 logging.info("Imports successful in RAUNet script")
 
@@ -32,8 +33,8 @@ class RAUNetScript(scripts.Script):
                 gr.Markdown("Note: Use SD15 setting for SD 2.1 as well.")
                 res_mode = gr.Radio(choices=["high (1536-2048)", "low (1024 or lower)", "ultra (over 2048)"], value="high (1536-2048)", label="Resolution Mode")
                 gr.Markdown("Note: Resolution mode is a preset, exact match to your resolution is not necessary.")
-                simple_upscale_mode = gr.Dropdown(choices=["default"] + list(UPSCALE_METHODS), value="default", label="Upscale Mode")
-                simple_ca_upscale_mode = gr.Dropdown(choices=["default"] + list(UPSCALE_METHODS), value="default", label="CA Upscale Mode")
+                simple_upscale_mode = gr.Dropdown(choices=UpscaleMethod.get_values(), value=UpscaleMethod.BICUBIC.value, label="Upscale Mode")
+                simple_ca_upscale_mode = gr.Dropdown(choices=UpscaleMethod.get_values(), value=UpscaleMethod.BICUBIC.value, label="CA Upscale Mode")
 
             with gr.Tab("RAUNet Advanced"):
                 gr.Markdown("Advanced RAUNet settings. For fine-tuning artifact reduction at high resolutions.")
@@ -49,7 +50,7 @@ class RAUNetScript(scripts.Script):
                 start_time = gr.Slider(label="Start Time", minimum=0.0, maximum=1.0, step=0.01, value=0.0)
                 end_time = gr.Slider(label="End Time", minimum=0.0, maximum=1.0, step=0.01, value=0.45)
                 skip_two_stage_upscale = gr.Checkbox(label="Skip Two Stage Upscale", value=False)
-                upscale_mode = gr.Dropdown(choices=UPSCALE_METHODS, value="bicubic", label="Upscale Mode")
+                upscale_mode = gr.Dropdown(choices=UpscaleMethod.get_values(), value=UpscaleMethod.BISLERP.value, label="Upscale Mode")
                 gr.Markdown("Recommended upscale mode: bicubic or bislerp")
                 
                 with gr.Accordion(open=False, label="Cross-Attention Settings"):
@@ -57,7 +58,7 @@ class RAUNetScript(scripts.Script):
                     ca_end_time = gr.Slider(label="CA End Time", minimum=0.0, maximum=1.0, step=0.01, value=0.3)
                     ca_input_blocks = gr.Text(label="CA Input Blocks", value="4")
                     ca_output_blocks = gr.Text(label="CA Output Blocks", value="8")
-                    ca_upscale_mode = gr.Dropdown(choices=UPSCALE_METHODS, value="bicubic", label="CA Upscale Mode")
+                    ca_upscale_mode = gr.Dropdown(choices=UpscaleMethod.get_values(), value=UpscaleMethod.BISLERP.value, label="CA Upscale Mode")
 
             with gr.Tab("MSW-MSA Simple"):
                 gr.Markdown("Simplified MSW-MSA for easier setup. Can improve performance and quality at high resolutions.")
@@ -84,11 +85,14 @@ class RAUNetScript(scripts.Script):
             gr.Markdown("Compatibility: These methods may not work with other attention modifications or scaling effects targeting the same blocks.")
 
         # Add JavaScript to handle visibility and model-specific settings
-        def update_raunet_settings(model_type):
-            if model_type == "SD15":
-                return "3", "8", "4", "8", 0.0, 0.45, 0.0, 0.3
-            else:  # SDXL
-                return "3", "5", "2", "7", 1.0, 1.0, 1.0, 1.0  # Disabling both patches by default for SDXL
+        def update_raunet_settings(model_type: ModelType):
+            match model_type:
+                case ModelType.SD15:
+                    return "3", "8", "4", "8", 0.0, 0.45, 0.0, 0.3
+                case ModelType.SDXL:
+                    return "3", "5", "2", "7", 1.0, 1.0, 1.0, 1.0
+                case _:
+                    raise ValueError(f"Invalid model type: {model_type}")
 
         raunet_model_type.change(
             fn=update_raunet_settings,
@@ -96,11 +100,14 @@ class RAUNetScript(scripts.Script):
             outputs=[input_blocks, output_blocks, ca_input_blocks, ca_output_blocks, start_time, end_time, ca_start_time, ca_end_time]
         )
 
-        def update_mswmsa_settings(model_type):
-            if model_type == "SD15":
-                return "1,2", "", "9,10,11"
-            else:  # SDXL
-                return "4,5", "", "4,5"
+        def update_mswmsa_settings(model_type: ModelType):
+            match model_type:
+                case ModelType.SD15:
+                    return "1,2", "", "9,10,11"
+                case ModelType.SDXL:
+                    return "4,5", "", "4,5"
+                case _:
+                    raise ValueError(f"Invalid model type: {model_type}")
 
         mswmsa_model_type.change(
             fn=update_mswmsa_settings,
@@ -124,7 +131,8 @@ class RAUNetScript(scripts.Script):
         mswmsa_enabled, mswmsa_model_type, mswmsa_input_blocks, mswmsa_middle_blocks, mswmsa_output_blocks, 
         mswmsa_time_mode, mswmsa_start_time, mswmsa_end_time) = script_args
 
-        if enabled: 
+        if enabled:
+            apply_monkey_patch()
             logging.info("\x1b[32mRAUNet script enabled\x1b[0m")
 
         
@@ -136,29 +144,12 @@ class RAUNetScript(scripts.Script):
         mswmsa_enabled, mswmsa_model_type, mswmsa_input_blocks, mswmsa_middle_blocks, mswmsa_output_blocks, 
         mswmsa_time_mode, mswmsa_start_time, mswmsa_end_time) = script_args
 
-        # Always start with a fresh clone of the original unet
-        unet = p.sd_model.forge_objects.unet.clone()
-
         if not enabled:
-            if not RAUNetScript.is_patched:
-                return
-            
-            logging.info("\x1b[32mRAUNet script disabled, resetting modifications\x1b[0m")
-
-            # Apply RAUNet patch with enabled=False to reset any modifications
-            unet = apply_rau_net(False, unet, "", "", "", 0, 0, False, "", 0, 0, "", "", "")[0]
-            unet = apply_rau_net_simple(False, raunet_simple_model_type, res_mode, simple_upscale_mode, simple_ca_upscale_mode, unet)[0]
-
-            # Apply MSW-MSA patch with empty block settings to reset any modifications
-            unet = apply_mswmsaa_attention(unet, "", "", "", mswmsa_time_mode, 0, 0)[0]
-            unet = apply_mswmsaa_attention_simple(mswmsa_simple_model_type, unet)[0]
-
-            p.sd_model.forge_objects.unet = unet
-            RAUNetScript.is_patched = False
             return
         
-        RAUNetScript.is_patched = True
-
+        # Always start with a fresh clone of the original unet
+        unet = p.sd_model.forge_objects.unet.clone()
+        
         # Handle RAUNet
         if raunet_simple_enabled == True:  # Explicit check for True
             unet = apply_rau_net_simple(
@@ -203,7 +194,7 @@ class RAUNetScript(scripts.Script):
             p.extra_generation_params.update(dict(raunet_enabled=False, raunet_simple_enabled=False))
 
         # Handle MSW-MSA
-        if mswmsa_simple_enabled == True:  # Explicit check for True
+        if mswmsa_simple_enabled:  # Explicit check for True
             unet = apply_mswmsaa_attention_simple(mswmsa_simple_model_type, unet)[0]
             p.extra_generation_params.update(
                 dict(
@@ -211,7 +202,7 @@ class RAUNetScript(scripts.Script):
                     mswmsa_model_type=mswmsa_simple_model_type,
                 )
             )
-        elif mswmsa_enabled == True:  # Explicit check for True
+        elif mswmsa_enabled:  # Explicit check for True
             unet = apply_mswmsaa_attention(
                 unet, mswmsa_input_blocks, mswmsa_middle_blocks, mswmsa_output_blocks, mswmsa_time_mode, mswmsa_start_time, mswmsa_end_time
             )[0]
@@ -244,3 +235,9 @@ class RAUNetScript(scripts.Script):
         logging.debug(f"MSW-MSA settings: Input Blocks: {mswmsa_input_blocks}, Output Blocks: {mswmsa_output_blocks}")
 
         return
+    
+    def postprocess(self, params, processed, *args):
+        remove_monkey_patch()
+        remove_current_script_callbacks()
+        return
+    
