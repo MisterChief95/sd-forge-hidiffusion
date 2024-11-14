@@ -1,72 +1,9 @@
-from enum import Enum
-from functools import cached_property
 import torch
 import torch.nn.functional as torchf
 
 from backend.modules.k_prediction import Prediction
 
 from packages_3rdparty.comfyui_lora_collection.utils import bislerp
-
-
-class UpscaleMethod(Enum):
-    """
-    Enum class representing different methods for image upscaling.
-    Attributes:
-        BICUBIC (str): Bicubic interpolation method.
-        BISLERP (str): Bislerp interpolation method.
-        BILINEAR (str): Bilinear interpolation method.
-        NEAREST_EXACT (str): Nearest neighbor interpolation method.
-        AREA (str): Area-based interpolation method.
-    Methods:
-        get_values() -> list[str]: Returns a list of all the upscaling method values.
-    """
-
-    BICUBIC = "bicubic"
-    BISLERP = "bislerp"
-    BILINEAR = "bilinear"
-    NEAREST_EXACT = "nearest-exact"
-    AREA = "area"
-
-    @cached_property
-    @staticmethod
-    def get_values() -> list[str]:
-        return [method.value for method in UpscaleMethod]
-    
-    def from_str(cls, s: str) -> 'UpscaleMethod':
-        for member in cls:
-            if member.value == s:
-                return member
-        raise ValueError(f"{s} is not a valid {cls.__name__}")
-    
-
-class ModelType(Enum):
-    """
-    ModelType is an enumeration that represents different types of models.
-    Attributes:
-        SD15 (str): Represents the "SD 1.5" model.
-        SDXL (str): Represents the "SDXL" model.
-    Methods:
-        get_values() -> list[str]:
-            Returns a list of the string values of the enumeration members.
-        from_str(s: str) -> ModelType:
-            Converts a string to the corresponding ModelType enumeration member.
-            Raises a ValueError if the string does not match any of the enumeration members.
-    """
-
-    SD15 = "SD 1.5"
-    SDXL = "SDXL"
-
-    @cached_property
-    @staticmethod
-    def get_values() -> list[str]:
-        return [method.value for method in UpscaleMethod]
-    
-    @classmethod
-    def from_str(cls, s: str) -> 'ModelType':
-        for member in cls:
-            if member.value == s:
-                return member
-        raise ValueError(f"{s} is not a valid {cls.__name__}")
 
 
 def parse_blocks(name: str, s: str) -> set[tuple[str, int]]:
@@ -89,7 +26,9 @@ def parse_blocks(name: str, s: str) -> set[tuple[str, int]]:
     return {(name, int(val.strip())) for val in vals if val}
 
 
-def convert_time(predictor: Prediction, time_mode: str, start_time: float, end_time: float) -> tuple[float, float]:
+def convert_time(
+    predictor: Prediction, time_mode: str, start_time: float, end_time: float
+) -> tuple[float, float]:
     """Convert time values according to specified time mode.
     This function converts time values from various modes (sigma, percent, timestep) to sigma values
     used in the diffusion process.
@@ -103,10 +42,10 @@ def convert_time(predictor: Prediction, time_mode: str, start_time: float, end_t
     Raises:
         ValueError: If time_mode is invalid or if percent values are out of range [0,1]
     """
-    
+
     if time_mode == "sigma":
         return (start_time, end_time)
-    
+
     if time_mode not in ("percent", "timestep"):
         raise ValueError("invalid time mode")
 
@@ -120,7 +59,10 @@ def convert_time(predictor: Prediction, time_mode: str, start_time: float, end_t
         if not (0.0 <= end_time <= 1.0):
             raise ValueError("end percent must be between 0 and 1")
 
-    return (predictor.percent_to_sigma(start_time), predictor.percent_to_sigma(end_time))
+    return (
+        predictor.percent_to_sigma(start_time),
+        predictor.percent_to_sigma(end_time),
+    )
 
 
 def get_sigma(options: dict[str, torch.Tensor], key="sigmas") -> float | None:
@@ -135,18 +77,20 @@ def get_sigma(options: dict[str, torch.Tensor], key="sigmas") -> float | None:
         >>> options = {"sigmas": torch.tensor([1.0, 2.0, 3.0])}
         >>> get_sigma(options)
         3.0
-        >>> get_sigma({}) 
+        >>> get_sigma({})
         None
     """
 
     if not isinstance(options, dict):
         return None
-    
+
     sigmas = options.get(key)
     return sigmas.detach().cpu().max().item() if sigmas is not None else None
 
 
-def check_time(options: dict[str, torch.Tensor], start_sigma: float, end_sigma: float) -> bool:
+def check_time(
+    options: dict[str, torch.Tensor], start_sigma: float, end_sigma: float
+) -> bool:
     """
     Check if the current sigma value falls within a specified range.
     Args:
@@ -169,7 +113,7 @@ def scale_samples(
     samples: torch.Tensor,
     width: int,
     height: int,
-    mode: UpscaleMethod | None=UpscaleMethod.BICUBIC,
+    mode: str = "bicubic",
 ) -> torch.Tensor:
     """
     Scale image samples to a target width and height using specified interpolation mode.
@@ -187,7 +131,7 @@ def scale_samples(
         torch.Size([1, 3, 128, 128])
     """
 
-    if mode is None or mode is UpscaleMethod.BISLERP:
+    if mode is None or mode is "bislerp":
         return bislerp(samples, width, height)
-    
+
     return torchf.interpolate(samples, size=(height, width), mode=mode.value)

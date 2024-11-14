@@ -1,14 +1,21 @@
 import torch
 import logging
 
-from .utils import *
-
 from backend.patcher.unet import UnetPatcher
 from backend.modules.k_model import KModel
 from backend.modules.k_prediction import Prediction
 
+from .types import *
+from .utils import *
 
-def window_partition(x: torch.Tensor, window_size: tuple[int, int], shift_size: int | tuple[int, int], height: int, width: int) -> torch.Tensor:
+
+def window_partition(
+    x: torch.Tensor,
+    window_size: tuple[int, int],
+    shift_size: int | tuple[int, int],
+    height: int,
+    width: int,
+) -> torch.Tensor:
     """Partitions spatial input tensor into windows.
     This function takes a tensor and divides it into windows according to specified window size,
     with an option to shift the partitioning grid.
@@ -47,12 +54,22 @@ def window_partition(x: torch.Tensor, window_size: tuple[int, int], shift_size: 
         channels,
     )
 
-    windows: torch.Tensor = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size[0], window_size[1], channels)
+    windows: torch.Tensor = (
+        x.permute(0, 1, 3, 2, 4, 5)
+        .contiguous()
+        .view(-1, window_size[0], window_size[1], channels)
+    )
 
     return windows.view(-1, window_size[0] * window_size[1], channels)
 
 
-def window_reverse(windows: torch.Tensor, window_size: tuple[int, int], shift_size: int | tuple[int, int], height: int, width: int) -> torch.Tensor:
+def window_reverse(
+    windows: torch.Tensor,
+    window_size: tuple[int, int],
+    shift_size: int | tuple[int, int],
+    height: int,
+    width: int,
+) -> torch.Tensor:
     """
     Reverses the window partitioning operation by reconstructing the original tensor from window segments.
     This function takes window segments and reconstructs them back into the original tensor format,
@@ -68,8 +85,8 @@ def window_reverse(windows: torch.Tensor, window_size: tuple[int, int], shift_si
     Returns:
         torch.Tensor: Reconstructed tensor of shape (batch, height * width, channels).
     Note:
-        This operation is the inverse of window_partition. It reconstructs the original tensor 
-        by properly arranging and shifting (if specified) the window segments back to their 
+        This operation is the inverse of window_partition. It reconstructs the original tensor
+        by properly arranging and shifting (if specified) the window segments back to their
         original positions.
     """
     # int, discard, int
@@ -100,7 +117,9 @@ def window_reverse(windows: torch.Tensor, window_size: tuple[int, int], shift_si
     return x.view(batch, height * width, channels)
 
 
-def get_window_args(n: torch.Tensor, orig_shape: tuple[int, int], shift: int) -> tuple[tuple[int, int], tuple[int, int], int, int]:
+def get_window_args(
+    n: torch.Tensor, orig_shape: tuple[int, int], shift: int
+) -> tuple[tuple[int, int], tuple[int, int], int, int]:
     """
     Calculate window arguments for shifted window attention.
     This function determines the window size, shift size, and dimensions based on input tensor
@@ -150,7 +169,7 @@ def apply_mswmsaa_attention(
     time_mode: str,
     start_time: float,
     end_time: float,
-) -> tuple[UnetPatcher]:
+) -> UnetPatcher:
     """Applies Multi-Scale Window Masked Self-Attention (MSW-MSA) to specific UNet blocks.
     This function implements MSW-MSA attention mechanism by patching the attention layers
     in specified UNet blocks. It enables shifted window-based self-attention for better
@@ -165,11 +184,10 @@ def apply_mswmsaa_attention(
         start_time (float): Starting time/step for applying attention.
         end_time (float): Ending time/step for applying attention.
     Returns:
-        tuple: Contains the modified unet_patcher object.
+        UnetPatcher: The modified unet_patcher object.
     Raises:
         RuntimeError: If window partitioning fails due to incompatible model patches
-                     or incorrect input resolution. Resolution should be multiples of 
-                     32 or 64.
+                     or incorrect input resolution. Resolution should be multiples of 64.
     Note:
         The function implements random shift patterns for window partitioning to avoid
         boundary artifacts. It uses a modulo-4 shift pattern that avoids consecutive
@@ -187,7 +205,12 @@ def apply_mswmsaa_attention(
 
     start_sigma, end_sigma = convert_time(predictor, time_mode, start_time, end_time)
 
-    def attn1_patch(q: torch.Tensor | None, k: torch.Tensor | None, v: torch.Tensor | None, extra_options) -> tuple[torch.Tensor | None, ...]:
+    def attn1_patch(
+        q: torch.Tensor | None,
+        k: torch.Tensor | None,
+        v: torch.Tensor | None,
+        extra_options,
+    ) -> tuple[torch.Tensor | None, ...]:
         """
         Applies Multiscale Window Multi-head Self-Attention (MSW-MSA) partitioning to query, key and value tensors.
         This function implements the shifting window mechanism for self-attention, where windows are randomly shifted
@@ -221,15 +244,16 @@ def apply_mswmsaa_attention(
         ):
             return q, k, v
         orig_shape = extra_options["original_shape"]
-        
+
         # MSW-MSA
         shift = int(torch.rand(1, device="cpu").item() * 4)
-        
+
         if shift == last_shift:
             shift = (shift + 1) % 4
         last_shift = shift
         window_args = tuple(
-            get_window_args(x, orig_shape, shift) if x is not None else None for x in (q, k, v)
+            get_window_args(x, orig_shape, shift) if x is not None else None
+            for x in (q, k, v)
         )
         try:
             if q is not None and q is k and q is v:
@@ -247,11 +271,13 @@ def apply_mswmsaa_attention(
             errstr = f"\x1b[31mMSW-MSA attention error: Incompatible model patches or bad resolution. Try using resolutions that are multiples of 32 or 64. Original exception: {exc}\x1b[0m"
             raise RuntimeError(errstr) from exc
 
-    def attn1_output_patch(n: torch.Tensor, extra_options: dict[str, str]) -> torch.Tensor:
+    def attn1_output_patch(
+        n: torch.Tensor, extra_options: dict[str, str]
+    ) -> torch.Tensor:
         """
         Patches the output of attention layer 1 by reversing windowing if window arguments are available.
         Args:
-            n: The input tensor to be processed
+            n (torch.Tensor): The input tensor to be processed
             extra_options (dict): Dictionary containing extra options, including the 'block' key
         Returns:
             tensor: Either the original input tensor if no window args are available,
@@ -270,10 +296,13 @@ def apply_mswmsaa_attention(
 
     unet_patcher.set_model_attn1_patch(attn1_patch)
     unet_patcher.set_model_attn1_output_patch(attn1_output_patch)
-    return (unet_patcher,)
+
+    return unet_patcher
 
 
-def apply_mswmsaa_attention_simple(model_type: str, model: UnetPatcher) -> UnetPatcher:
+def apply_mswmsaa_attention_simple(
+    model_type: ModelType, model: UnetPatcher
+) -> UnetPatcher:
     """
     Applies Multi-Scale Window Multi-head Self Attention (MSWMSA) to a given model using predefined settings based on model type.
     Args:
@@ -289,14 +318,15 @@ def apply_mswmsaa_attention_simple(model_type: str, model: UnetPatcher) -> UnetP
         - Uses time range of 0.2 to 1.0 for both model types
     """
 
-    time_range: tuple[float] = (0.2, 1.0)
+    time_range = FloatRange(0.2, 1.0)
 
-    if model_type == "SD15":
-        blocks: tuple[str] = ("1,2", "", "11,10,9")
-    elif model_type == "SDXL":
-        blocks: tuple[str] = ("4,5", "", "5,4")
-    else:
-        raise ValueError("Unknown model type")
+    match model_type:
+        case ModelType.SD15:
+            blocks: Blocks = ("1,2", "", "11,10,9")
+        case ModelType.SDXL:
+            blocks: Blocks = ("4,5", "", "5,4")
+        case _:
+            raise ValueError("Unknown model type")
 
     prettyblocks = " / ".join(b if b else "none" for b in blocks)
 
