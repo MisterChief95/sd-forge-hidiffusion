@@ -1,7 +1,11 @@
 import torch
 import logging
 
-from .utils import *
+from .utils import (
+    check_time,
+    convert_time,
+    parse_blocks,
+)
 
 from backend.patcher.unet import UnetPatcher
 from backend.modules.k_model import KModel
