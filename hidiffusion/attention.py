@@ -8,7 +8,9 @@ from backend.modules.k_model import KModel
 from backend.modules.k_prediction import Prediction
 
 
-def window_partition(x: torch.Tensor, window_size: tuple[int, int], shift_size: int | tuple[int, int], height: int, width: int) -> torch.Tensor:
+def window_partition(
+    x: torch.Tensor, window_size: tuple[int, int], shift_size: int | tuple[int, int], height: int, width: int
+) -> torch.Tensor:
     """Partitions spatial input tensor into windows.
     This function takes a tensor and divides it into windows according to specified window size,
     with an option to shift the partitioning grid.
@@ -52,7 +54,9 @@ def window_partition(x: torch.Tensor, window_size: tuple[int, int], shift_size: 
     return windows.view(-1, window_size[0] * window_size[1], channels)
 
 
-def window_reverse(windows: torch.Tensor, window_size: tuple[int, int], shift_size: int | tuple[int, int], height: int, width: int) -> torch.Tensor:
+def window_reverse(
+    windows: torch.Tensor, window_size: tuple[int, int], shift_size: int | tuple[int, int], height: int, width: int
+) -> torch.Tensor:
     """
     Reverses the window partitioning operation by reconstructing the original tensor from window segments.
     This function takes window segments and reconstructs them back into the original tensor format,
@@ -68,8 +72,8 @@ def window_reverse(windows: torch.Tensor, window_size: tuple[int, int], shift_si
     Returns:
         torch.Tensor: Reconstructed tensor of shape (batch, height * width, channels).
     Note:
-        This operation is the inverse of window_partition. It reconstructs the original tensor 
-        by properly arranging and shifting (if specified) the window segments back to their 
+        This operation is the inverse of window_partition. It reconstructs the original tensor
+        by properly arranging and shifting (if specified) the window segments back to their
         original positions.
     """
     # int, discard, int
@@ -100,7 +104,9 @@ def window_reverse(windows: torch.Tensor, window_size: tuple[int, int], shift_si
     return x.view(batch, height * width, channels)
 
 
-def get_window_args(n: torch.Tensor, orig_shape: tuple[int, int], shift: int) -> tuple[tuple[int, int], tuple[int, int], int, int]:
+def get_window_args(
+    n: torch.Tensor, orig_shape: tuple[int, int], shift: int
+) -> tuple[tuple[int, int], tuple[int, int], int, int]:
     """
     Calculate window arguments for shifted window attention.
     This function determines the window size, shift size, and dimensions based on input tensor
@@ -168,7 +174,7 @@ def apply_mswmsaa_attention(
         tuple: Contains the modified unet_patcher object.
     Raises:
         RuntimeError: If window partitioning fails due to incompatible model patches
-                     or incorrect input resolution. Resolution should be multiples of 
+                     or incorrect input resolution. Resolution should be multiples of
                      32 or 64.
     Note:
         The function implements random shift patterns for window partitioning to avoid
@@ -187,7 +193,9 @@ def apply_mswmsaa_attention(
 
     start_sigma, end_sigma = convert_time(predictor, time_mode, start_time, end_time)
 
-    def attn1_patch(q: torch.Tensor | None, k: torch.Tensor | None, v: torch.Tensor | None, extra_options) -> tuple[torch.Tensor | None, ...]:
+    def attn1_patch(
+        q: torch.Tensor | None, k: torch.Tensor | None, v: torch.Tensor | None, extra_options
+    ) -> tuple[torch.Tensor | None, ...]:
         """
         Applies Multiscale Window Multi-head Self-Attention (MSW-MSA) partitioning to query, key and value tensors.
         This function implements the shifting window mechanism for self-attention, where windows are randomly shifted
@@ -221,16 +229,14 @@ def apply_mswmsaa_attention(
         ):
             return q, k, v
         orig_shape = extra_options["original_shape"]
-        
+
         # MSW-MSA
         shift = int(torch.rand(1, device="cpu").item() * 4)
-        
+
         if shift == last_shift:
             shift = (shift + 1) % 4
         last_shift = shift
-        window_args = tuple(
-            get_window_args(x, orig_shape, shift) if x is not None else None for x in (q, k, v)
-        )
+        window_args = tuple(get_window_args(x, orig_shape, shift) if x is not None else None for x in (q, k, v))
         try:
             if q is not None and q is k and q is v:
                 return (
@@ -240,8 +246,7 @@ def apply_mswmsaa_attention(
                     ),
                 ) * 3
             return tuple(
-                window_partition(x, *window_args[idx]) if x is not None else None
-                for idx, x in enumerate((q, k, v))
+                window_partition(x, *window_args[idx]) if x is not None else None for idx, x in enumerate((q, k, v))
             )
         except RuntimeError as exc:
             errstr = f"\x1b[31mMSW-MSA attention error: Incompatible model patches or bad resolution. Try using resolutions that are multiples of 32 or 64. Original exception: {exc}\x1b[0m"

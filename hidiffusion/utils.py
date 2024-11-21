@@ -43,10 +43,10 @@ def convert_time(predictor: Prediction, time_mode: str, start_time: float, end_t
     Raises:
         ValueError: If time_mode is invalid or if percent values are out of range [0,1]
     """
-    
+
     if time_mode == "sigma":
         return (start_time, end_time)
-    
+
     if time_mode not in ("percent", "timestep"):
         raise ValueError("invalid time mode")
 
@@ -75,13 +75,13 @@ def get_sigma(options: dict[str, torch.Tensor], key="sigmas") -> float | None:
         >>> options = {"sigmas": torch.tensor([1.0, 2.0, 3.0])}
         >>> get_sigma(options)
         3.0
-        >>> get_sigma({}) 
+        >>> get_sigma({})
         None
     """
 
     if not isinstance(options, dict):
         return None
-    
+
     sigmas = options.get(key)
     return sigmas.detach().cpu().max().item() if sigmas is not None else None
 
@@ -109,7 +109,7 @@ def scale_samples(
     samples: torch.Tensor,
     width: int,
     height: int,
-    mode: str | None="bicubic",
+    mode: str | None = "bicubic",
 ) -> torch.Tensor:
     """
     Scale image samples to a target width and height using specified interpolation mode.
@@ -129,5 +129,5 @@ def scale_samples(
 
     if mode == "bislerp":
         return bislerp(samples, width, height)
-    
+
     return torchf.interpolate(samples, size=(height, width), mode=mode)
