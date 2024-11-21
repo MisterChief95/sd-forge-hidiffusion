@@ -3,6 +3,7 @@ import logging
 import gradio as gr
 from backend.patcher.unet import UnetPatcher
 from modules import scripts
+from modules.script_callbacks import remove_current_script_callbacks
 
 # Now import from your package
 from hidiffusion.raunet import apply_rau_net, apply_rau_net_simple, UPSCALE_METHODS
@@ -244,3 +245,7 @@ class RAUNetScript(scripts.Script):
         logging.debug(f"MSW-MSA settings: Input Blocks: {mswmsa_input_blocks}, Output Blocks: {mswmsa_output_blocks}")
 
         return
+    
+
+    def postprocess(self, p, processed, *args):
+        remove_current_script_callbacks()
