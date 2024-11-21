@@ -72,7 +72,7 @@ class HDUpsample(ORIG_UPSAMPLE):
             Returns:
                 torch.Tensor: Upsampled tensor after processing through interpolation and convolution
     """
-    
+
     def forward(self, x, output_shape=None, transformer_options=None):
         if self.dims == 3 or not self.use_conv or not HDCONFIG.check(transformer_options):
             return super().forward(x, output_shape=output_shape)
