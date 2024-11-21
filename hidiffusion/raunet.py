@@ -49,7 +49,7 @@ NO_CONTROLNET_WORKAROUND: bool = os.environ.get("JANKHIDIFFUSION_NO_CONTROLNET_W
 ORIG_APPLY_CONTROL = unet.apply_control
 ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
 PATCHED_FREEU: bool = False
-ORIG_UPSAMPLE = unet.Upsample 
+ORIG_UPSAMPLE = unet.Upsample
 ORIG_DOWNSAMPLE = unet.Downsample
 
 
@@ -102,31 +102,33 @@ class HDDownsample(ORIG_DOWNSAMPLE):
 # Create proxy classes that inherit from original UNet classes
 class ProxyUpsample(HDUpsample):
     """Proxy class that can switch between HD and original upsampling implementations."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.orig_instance = ORIG_UPSAMPLE(*args, **kwargs)
         # Transfer weights and parameters
         self.orig_instance.conv = self.conv
-        
+
     def forward(self, *args, **kwargs):
         if HDCONFIG.enabled:
             return super().forward(*args, **kwargs)
         return self.orig_instance.forward(*args, **kwargs)
-    
+
 
 class ProxyDownsample(HDDownsample):
     """Proxy class that can switch between HD and original downsampling implementations."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.orig_instance = ORIG_DOWNSAMPLE(*args, **kwargs)
         # Transfer weights and parameters
         self.orig_instance.op = self.op
-        
+
     def forward(self, *args, **kwargs):
         if HDCONFIG.enabled:
             return super().forward(*args, **kwargs)
         return self.orig_instance.forward(*args, **kwargs)
-        
+
 
 # Replace original classes with proxy classes
 unet.Upsample = ProxyUpsample
@@ -314,7 +316,7 @@ def apply_rau_net(
 
     unet_patcher.set_model_input_block_patch(input_block_patch)
     unet_patcher.set_model_output_block_patch(output_block_patch)
-    
+
     HDCONFIG.use_blocks = use_blocks
     HDCONFIG.two_stage_upscale = not skip_two_stage_upscale
     HDCONFIG.upscale_mode = upscale_mode
@@ -334,8 +336,8 @@ def configure_blocks(
             "modes": {
                 "low": (True, ("", ""), (0.0, 0.4), (1.0, 0.0)),
                 "high": (True, ("1", "11"), (0.0, 0.5), (0.0, 0.35)),
-                "ultra": (True, ("1", "11"), (0.0, 0.6), (0.0, 0.45))
-            }
+                "ultra": (True, ("1", "11"), (0.0, 0.6), (0.0, 0.45)),
+            },
         },
         "SDXL": {
             "blocks": ("3", "5"),
@@ -343,9 +345,9 @@ def configure_blocks(
             "modes": {
                 "low": (False, None, None, None),
                 "high": (True, ("4", "5"), (0.0, 0.5), (1.0, 0.0)),
-                "ultra": (True, ("4", "5"), (0.0, 0.6), (0.0, 0.45))
-            }
-        }
+                "ultra": (True, ("4", "5"), (0.0, 0.6), (0.0, 0.45)),
+            },
+        },
     }
 
     if model_type not in model_configs:
