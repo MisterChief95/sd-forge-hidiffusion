@@ -370,13 +370,13 @@ def apply_rau_net_simple(enabled, model_type, res_mode, upscale_mode, ca_upscale
     enabled, blocks, ca_blocks, time_range, ca_time_range = configure_blocks(model_type, res)
 
     if not enabled:
-        logging.debug("** ApplyRAUNetSimple: Disabled")
+        logger.debug("** ApplyRAUNetSimple: Disabled")
         return (model.clone(),)
 
     prettyblocks = " / ".join(b if b else "none" for b in blocks)
     prettycablocks = " / ".join(b if b else "none" for b in ca_blocks)
 
-    logging.debug(
+    logger.debug(
         f"""** ApplyRAUNetSimple: Using preset {model_type} {res}:
         upscale: {upscale_mode}
         in/out blocks: [{prettyblocks}]
