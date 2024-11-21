@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 from typing import Any
 
 import torch.nn.functional as F
@@ -48,10 +47,92 @@ HDCONFIG = HDConfigClass()
 CONTROLNET_SCALE_ARGS: dict[str, Any] = {"mode": "bilinear", "align_corners": False}
 NO_CONTROLNET_WORKAROUND: bool = os.environ.get("JANKHIDIFFUSION_NO_CONTROLNET_WORKAROUND") is not None
 ORIG_APPLY_CONTROL = unet.apply_control
-ORIG_DOWNSAMPLE = unet.Downsample
 ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
-ORIG_UPSAMPLE = unet.Upsample
 PATCHED_FREEU: bool = False
+ORIG_UPSAMPLE = unet.Upsample 
+ORIG_DOWNSAMPLE = unet.Downsample
+
+
+class HDUpsample(ORIG_UPSAMPLE):
+    def forward(self, x, output_shape=None, transformer_options=None):
+        if self.dims == 3 or not self.use_conv or not HDCONFIG.check(transformer_options):
+            return super().forward(x, output_shape=output_shape)
+        shape = output_shape[2:4] if output_shape is not None else (x.shape[2] * 4, x.shape[3] * 4)
+        if HDCONFIG.two_stage_upscale:
+            x = F.interpolate(x, size=(shape[0] // 2, shape[1] // 2), mode="nearest")
+        x = scale_samples(
+            x,
+            shape[1],
+            shape[0],
+            mode=HDCONFIG.upscale_mode,
+        )
+        return self.conv(x)
+
+
+class HDDownsample(ORIG_DOWNSAMPLE):
+    COPY_OP_KEYS = (
+        "parameters_manual_cast",
+        "weight_function",
+        "bias_function",
+        "weight",
+        "bias",
+    )
+
+    def __init__(self, *args: list, **kwargs: dict):
+        super().__init__(*args, **kwargs)
+
+    def forward(self, x, transformer_options=None):
+        if self.dims == 3 or not self.use_conv or not HDCONFIG.check(transformer_options):
+            return super().forward(x)
+        tempop = unet.conv_nd(
+            self.dims,
+            self.channels,
+            self.out_channels,
+            3,  # kernel size
+            stride=(4, 4),
+            padding=(2, 2),
+            dilation=(2, 2),
+        )
+        for k in self.COPY_OP_KEYS:
+            if hasattr(self.op, k):
+                setattr(tempop, k, getattr(self.op, k))
+        return tempop(x)
+
+
+# Create proxy classes that inherit from original UNet classes
+class ProxyUpsample(ORIG_UPSAMPLE):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.orig_instance = ORIG_UPSAMPLE(*args, **kwargs)
+        self.hd_instance = HDUpsample(*args, **kwargs)
+        # Transfer weights and parameters
+        self.hd_instance.conv = self.conv
+        self.orig_instance.conv = self.conv
+        
+    def forward(self, *args, **kwargs):
+        if HDCONFIG.enabled:
+            return self.hd_instance.forward(*args, **kwargs)
+        return self.orig_instance.forward(*args, **kwargs)
+    
+
+class ProxyDownsample(ORIG_DOWNSAMPLE):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.orig_instance = ORIG_DOWNSAMPLE(*args, **kwargs)
+        self.hd_instance = HDDownsample(*args, **kwargs)
+        # Transfer weights and parameters
+        self.hd_instance.op = self.op
+        self.orig_instance.op = self.op
+        
+    def forward(self, *args, **kwargs):
+        if HDCONFIG.enabled:
+            return self.hd_instance.forward(*args, **kwargs)
+        return self.orig_instance.forward(*args, **kwargs)
+        
+
+# Replace original classes with proxy classes
+unet.Upsample = ProxyUpsample
+unet.Downsample = ProxyDownsample
 
 
 # TODO: Implement Forge FreeU compatibility
@@ -119,67 +200,16 @@ def hd_forward_timestep_embed(ts, x, emb, *args: list, **kwargs: dict):
     return x
 
 
-
-
-
-class HDUpsample(ORIG_UPSAMPLE):
-    def forward(self, x, output_shape=None, transformer_options=None):
-        if self.dims == 3 or not self.use_conv or not HDCONFIG.check(transformer_options):
-            return super().forward(x, output_shape=output_shape)
-        shape = output_shape[2:4] if output_shape is not None else (x.shape[2] * 4, x.shape[3] * 4)
-        if HDCONFIG.two_stage_upscale:
-            x = F.interpolate(x, size=(shape[0] // 2, shape[1] // 2), mode="nearest")
-        x = scale_samples(
-            x,
-            shape[1],
-            shape[0],
-            mode=HDCONFIG.upscale_mode,
-        )
-        return self.conv(x)
-
-
-class HDDownsample(ORIG_DOWNSAMPLE):
-    COPY_OP_KEYS = (
-        "parameters_manual_cast",
-        "weight_function",
-        "bias_function",
-        "weight",
-        "bias",
-    )
-
-    def __init__(self, *args: list, **kwargs: dict):
-        super().__init__(*args, **kwargs)
-
-    def forward(self, x, transformer_options=None):
-        if self.dims == 3 or not self.use_conv or not HDCONFIG.check(transformer_options):
-            return super().forward(x)
-        tempop = unet.conv_nd(
-            self.dims,
-            self.channels,
-            self.out_channels,
-            3,  # kernel size
-            stride=(4, 4),
-            padding=(2, 2),
-            dilation=(2, 2),
-        )
-        for k in self.COPY_OP_KEYS:
-            if hasattr(self.op, k):
-                setattr(tempop, k, getattr(self.op, k))
-        return tempop(x)
-
-
 def apply_monkeypatch():
+    HDCONFIG.enabled = True
     unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
-    unet.Upsample = HDUpsample
-    unet.Downsample = HDDownsample
     unet.apply_control = hd_apply_control
     print("\x1b[32m[HiDiffusion]\x1b[0m Apply UNet monkey patches")
 
 
 def remove_monkeypatch():
+    HDCONFIG.enabled = False
     unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
-    unet.Upsample = ORIG_UPSAMPLE
-    unet.Downsample = ORIG_DOWNSAMPLE
     unet.apply_control = ORIG_APPLY_CONTROL
     print("\x1b[32m[HiDiffusion]\x1b[0m Remove UNet monkey patches")
 
@@ -267,11 +297,7 @@ def apply_rau_net(
     HDCONFIG.use_blocks = use_blocks
     HDCONFIG.two_stage_upscale = not skip_two_stage_upscale
     HDCONFIG.upscale_mode = upscale_mode
-    HDCONFIG.enabled = True
-    # if unet.TimestepEmbedSequential.forward is not hd_forward_timestep_embed:
-    #     # try_patch_freeu_advanced()
-    #     ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
-    #     unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
+
     return (unet_patcher,)
 
 
