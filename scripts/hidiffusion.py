@@ -215,11 +215,11 @@ class RAUNetScript(scripts.Script):
             mswmsa_end_time,
         ) = script_args
 
-        # Always start with a fresh clone of the original unet
-        unet = p.sd_model.forge_objects.unet.clone()
-
         if not enabled:
             return
+
+        # Always start with a fresh clone of the original unet
+        unet = p.sd_model.forge_objects.unet.clone()
 
         # Handle RAUNet
         if raunet_simple_enabled == True:  # Explicit check for True
