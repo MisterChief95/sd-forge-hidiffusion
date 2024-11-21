@@ -100,33 +100,31 @@ class HDDownsample(ORIG_DOWNSAMPLE):
 
 
 # Create proxy classes that inherit from original UNet classes
-class ProxyUpsample(ORIG_UPSAMPLE):
+class ProxyUpsample(HDUpsample):
+    """Proxy class that can switch between HD and original upsampling implementations."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.orig_instance = ORIG_UPSAMPLE(*args, **kwargs)
-        self.hd_instance = HDUpsample(*args, **kwargs)
         # Transfer weights and parameters
-        self.hd_instance.conv = self.conv
         self.orig_instance.conv = self.conv
         
     def forward(self, *args, **kwargs):
         if HDCONFIG.enabled:
-            return self.hd_instance.forward(*args, **kwargs)
+            return super().forward(*args, **kwargs)
         return self.orig_instance.forward(*args, **kwargs)
     
 
-class ProxyDownsample(ORIG_DOWNSAMPLE):
+class ProxyDownsample(HDDownsample):
+    """Proxy class that can switch between HD and original downsampling implementations."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.orig_instance = ORIG_DOWNSAMPLE(*args, **kwargs)
-        self.hd_instance = HDDownsample(*args, **kwargs)
         # Transfer weights and parameters
-        self.hd_instance.op = self.op
         self.orig_instance.op = self.op
         
     def forward(self, *args, **kwargs):
         if HDCONFIG.enabled:
-            return self.hd_instance.forward(*args, **kwargs)
+            return super().forward(*args, **kwargs)
         return self.orig_instance.forward(*args, **kwargs)
         
 
