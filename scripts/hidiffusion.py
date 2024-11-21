@@ -1,5 +1,4 @@
 import gradio as gr
-from backend.patcher.unet import UnetPatcher
 from modules import scripts
 from modules.script_callbacks import remove_current_script_callbacks
 
@@ -222,7 +221,7 @@ class RAUNetScript(scripts.Script):
         unet = p.sd_model.forge_objects.unet.clone()
 
         # Handle RAUNet
-        if raunet_simple_enabled == True:  # Explicit check for True
+        if raunet_simple_enabled:  # Explicit check for True
             unet = apply_rau_net_simple(
                 True, raunet_simple_model_type, res_mode, simple_upscale_mode, simple_ca_upscale_mode, unet
             )[0]
@@ -235,7 +234,7 @@ class RAUNetScript(scripts.Script):
                     raunet_simple_ca_upscale_mode=simple_ca_upscale_mode,
                 )
             )
-        elif raunet_enabled == True:  # Explicit check for True
+        elif raunet_enabled:  # Explicit check for True
             unet = apply_rau_net(
                 True,
                 unet,
@@ -279,7 +278,7 @@ class RAUNetScript(scripts.Script):
             p.extra_generation_params.update(dict(raunet_enabled=False, raunet_simple_enabled=False))
 
         # Handle MSW-MSA
-        if mswmsa_simple_enabled == True:  # Explicit check for True
+        if mswmsa_simple_enabled:  # Explicit check for True
             unet = apply_mswmsaa_attention_simple(mswmsa_simple_model_type, unet)[0]
             p.extra_generation_params.update(
                 dict(
@@ -287,7 +286,7 @@ class RAUNetScript(scripts.Script):
                     mswmsa_model_type=mswmsa_simple_model_type,
                 )
             )
-        elif mswmsa_enabled == True:  # Explicit check for True
+        elif mswmsa_enabled:  # Explicit check for True
             unet = apply_mswmsaa_attention(
                 unet,
                 mswmsa_input_blocks,
