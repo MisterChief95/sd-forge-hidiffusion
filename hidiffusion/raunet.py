@@ -48,49 +48,36 @@ HDCONFIG = HDConfigClass()
 CONTROLNET_SCALE_ARGS: dict[str, Any] = {"mode": "bilinear", "align_corners": False}
 NO_CONTROLNET_WORKAROUND: bool = os.environ.get("JANKHIDIFFUSION_NO_CONTROLNET_WORKAROUND") is not None
 ORIG_APPLY_CONTROL = unet.apply_control
-ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential().forward
+ORIG_DOWNSAMPLE = unet.Downsample
+ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
+ORIG_UPSAMPLE = unet.Upsample
 PATCHED_FREEU: bool = False
 
 
-def apply_monkeypatch():
-    unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
-    unet.Upsample = HDUpsample
-    unet.Downsample = HDDownsample
-    unet.apply_control = hd_apply_control
-    print("** jankhidiffusion: Monkeypatched UNet")
-
-
-def remove_monkeypatch():
-    unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
-    unet.Upsample = OrigUpsample
-    unet.Downsample = OrigDownsample
-    unet.apply_control = ORIG_APPLY_CONTROL
-    print("** jankhidiffusion: Removed monkeypatched UNet")
-
-
+# TODO: Implement Forge FreeU compatibility
 # Try to be compatible with FreeU Advanced.
-def try_patch_freeu_advanced():
-    global PATCHED_FREEU  # noqa: PLW0603
-    if PATCHED_FREEU:
-        return
-    # We only try one time.
-    PATCHED_FREEU = True
-    fua_nodes = sys.modules.get("FreeU_Advanced.nodes")
-    if not fua_nodes:
-        return
+# def try_patch_freeu_advanced():
+#     global PATCHED_FREEU  # noqa: PLW0603
+#     if PATCHED_FREEU:
+#         return
+#     # We only try one time.
+#     PATCHED_FREEU = True
+#     fua_nodes = sys.modules.get("FreeU_Advanced.nodes")
+#     if not fua_nodes:
+#         return
 
-    def fu_forward_timestep_embed(*args: list, **kwargs: dict):
-        fun = hd_forward_timestep_embed if HDCONFIG.enabled else ORIG_FORWARD_TIMESTEP_EMBED
-        return fun(*args, **kwargs)
+#     def fu_forward_timestep_embed(*args: list, **kwargs: dict):
+#         fun = hd_forward_timestep_embed if HDCONFIG.enabled else ORIG_FORWARD_TIMESTEP_EMBED
+#         return fun(*args, **kwargs)
 
-    def fu_apply_control(*args: list, **kwargs: dict):
-        fun = hd_apply_control if HDCONFIG.enabled else ORIG_APPLY_CONTROL
-        return fun(*args, **kwargs)
+#     def fu_apply_control(*args: list, **kwargs: dict):
+#         fun = hd_apply_control if HDCONFIG.enabled else ORIG_APPLY_CONTROL
+#         return fun(*args, **kwargs)
 
-    fua_nodes.forward_timestep_embed = fu_forward_timestep_embed
-    if not NO_CONTROLNET_WORKAROUND:
-        fua_nodes.unet.apply_control = fu_apply_control
-    print("** jankhidiffusion: Patched FreeU_Advanced")
+#     fua_nodes.forward_timestep_embed = fu_forward_timestep_embed
+#     if not NO_CONTROLNET_WORKAROUND:
+#         fua_nodes.unet.apply_control = fu_apply_control
+#     print("** jankhidiffusion: Patched FreeU_Advanced")
 
 
 def hd_apply_control(h, control, name):
@@ -107,14 +94,6 @@ def hd_apply_control(h, control, name):
         ctrl = F.interpolate(ctrl, size=h.shape[-2:], **CONTROLNET_SCALE_ARGS)
     h += ctrl
     return h
-
-
-def try_patch_apply_control():
-    global ORIG_APPLY_CONTROL  # noqa: PLW0603
-    if unet.apply_control is hd_apply_control or NO_CONTROLNET_WORKAROUND:
-        return
-    ORIG_APPLY_CONTROL = unet.apply_control
-    unet.apply_control = hd_apply_control
 
 
 class NotFound:
@@ -140,10 +119,10 @@ def hd_forward_timestep_embed(ts, x, emb, *args: list, **kwargs: dict):
     return x
 
 
-OrigUpsample, OrigDownsample = unet.Upsample, unet.Downsample
 
 
-class HDUpsample(OrigUpsample):
+
+class HDUpsample(ORIG_UPSAMPLE):
     def forward(self, x, output_shape=None, transformer_options=None):
         if self.dims == 3 or not self.use_conv or not HDCONFIG.check(transformer_options):
             return super().forward(x, output_shape=output_shape)
@@ -159,7 +138,7 @@ class HDUpsample(OrigUpsample):
         return self.conv(x)
 
 
-class HDDownsample(OrigDownsample):
+class HDDownsample(ORIG_DOWNSAMPLE):
     COPY_OP_KEYS = (
         "parameters_manual_cast",
         "weight_function",
@@ -189,9 +168,20 @@ class HDDownsample(OrigDownsample):
         return tempop(x)
 
 
-# Necessary to monkeypatch the built in blocks before any models are loaded.
-unet.Upsample = HDUpsample
-unet.Downsample = HDDownsample
+def apply_monkeypatch():
+    unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
+    unet.Upsample = HDUpsample
+    unet.Downsample = HDDownsample
+    unet.apply_control = hd_apply_control
+    logging.info("** jankhidiffusion: Apply  UNet monkey patches")
+
+
+def remove_monkeypatch():
+    unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
+    unet.Upsample = ORIG_UPSAMPLE
+    unet.Downsample = ORIG_DOWNSAMPLE
+    unet.apply_control = ORIG_APPLY_CONTROL
+    logging.info("** jankhidiffusion: Remove UNet monkey patches")
 
 
 def apply_rau_net(
@@ -278,11 +268,10 @@ def apply_rau_net(
     HDCONFIG.two_stage_upscale = not skip_two_stage_upscale
     HDCONFIG.upscale_mode = upscale_mode
     HDCONFIG.enabled = True
-    if unet.TimestepEmbedSequential.forward is not hd_forward_timestep_embed:
-        try_patch_freeu_advanced()
-        ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
-        unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
-    try_patch_apply_control()
+    # if unet.TimestepEmbedSequential.forward is not hd_forward_timestep_embed:
+    #     # try_patch_freeu_advanced()
+    #     ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
+    #     unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
     return (unet_patcher,)
 
 
