@@ -1,6 +1,4 @@
-import logging
 import os
-import sys
 from typing import Any
 
 import torch.nn.functional as F
@@ -8,6 +6,7 @@ import torch.nn.functional as F
 import backend.nn.unet as unet
 
 from .utils import *
+from .logger import logger
 
 
 class HDConfigClass:
@@ -33,7 +32,7 @@ class HDConfigClass:
     end_sigma: float | None = None
     use_blocks: float | None = None
     two_stage_upscale: bool = True
-    upscale_mode: str = "bislerp"
+    upscale_mode: str = UPSCALE_METHODS[0]
 
     def check(self, topts: dict[str, torch.Tensor]) -> bool:
         if not self.enabled or not isinstance(topts, dict):
@@ -48,86 +47,13 @@ HDCONFIG = HDConfigClass()
 CONTROLNET_SCALE_ARGS: dict[str, Any] = {"mode": "bilinear", "align_corners": False}
 NO_CONTROLNET_WORKAROUND: bool = os.environ.get("JANKHIDIFFUSION_NO_CONTROLNET_WORKAROUND") is not None
 ORIG_APPLY_CONTROL = unet.apply_control
-ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential().forward
+ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
 PATCHED_FREEU: bool = False
+ORIG_UPSAMPLE = unet.Upsample 
+ORIG_DOWNSAMPLE = unet.Downsample
 
 
-# Try to be compatible with FreeU Advanced.
-def try_patch_freeu_advanced():
-    global PATCHED_FREEU  # noqa: PLW0603
-    if PATCHED_FREEU:
-        return
-    # We only try one time.
-    PATCHED_FREEU = True
-    fua_nodes = sys.modules.get("FreeU_Advanced.nodes")
-    if not fua_nodes:
-        return
-
-    def fu_forward_timestep_embed(*args: list, **kwargs: dict):
-        fun = hd_forward_timestep_embed if HDCONFIG.enabled else ORIG_FORWARD_TIMESTEP_EMBED
-        return fun(*args, **kwargs)
-
-    def fu_apply_control(*args: list, **kwargs: dict):
-        fun = hd_apply_control if HDCONFIG.enabled else ORIG_APPLY_CONTROL
-        return fun(*args, **kwargs)
-
-    fua_nodes.forward_timestep_embed = fu_forward_timestep_embed
-    if not NO_CONTROLNET_WORKAROUND:
-        fua_nodes.unet.apply_control = fu_apply_control
-    print("** jankhidiffusion: Patched FreeU_Advanced")
-
-
-def hd_apply_control(h, control, name):
-    ctrls = control.get(name) if control is not None else None
-    if ctrls is None or len(ctrls) == 0:
-        return h
-    ctrl = ctrls.pop()
-    if ctrl is None:
-        return h
-    if ctrl.shape[-2:] != h.shape[-2:]:
-        print(
-            f"* jankhidiffusion: Scaling controlnet conditioning: {ctrl.shape[-2:]} -> {h.shape[-2:]}",
-        )
-        ctrl = F.interpolate(ctrl, size=h.shape[-2:], **CONTROLNET_SCALE_ARGS)
-    h += ctrl
-    return h
-
-
-def try_patch_apply_control():
-    global ORIG_APPLY_CONTROL  # noqa: PLW0603
-    if unet.apply_control is hd_apply_control or NO_CONTROLNET_WORKAROUND:
-        return
-    ORIG_APPLY_CONTROL = unet.apply_control
-    unet.apply_control = hd_apply_control
-
-
-class NotFound:
-    pass
-
-
-def hd_forward_timestep_embed(ts, x, emb, *args: list, **kwargs: dict):
-    transformer_options = kwargs.get("transformer_options", NotFound)
-    output_shape = kwargs.get("output_shape", NotFound)
-    transformer_options = args[1] if transformer_options is NotFound and len(args) > 1 else {}
-    output_shape = args[2] if output_shape is NotFound and len(args) > 2 else None
-    for layer in ts:
-        if isinstance(layer, HDUpsample):
-            x = layer.forward(
-                x,
-                output_shape=output_shape,
-                transformer_options=transformer_options,
-            )
-        elif isinstance(layer, HDDownsample):
-            x = layer.forward(x, transformer_options=transformer_options)
-        else:
-            x = ORIG_FORWARD_TIMESTEP_EMBED((layer,), x, emb, *args, **kwargs)
-    return x
-
-
-OrigUpsample, OrigDownsample = unet.Upsample, unet.Downsample
-
-
-class HDUpsample(OrigUpsample):
+class HDUpsample(ORIG_UPSAMPLE):
     def forward(self, x, output_shape=None, transformer_options=None):
         if self.dims == 3 or not self.use_conv or not HDCONFIG.check(transformer_options):
             return super().forward(x, output_shape=output_shape)
@@ -143,7 +69,7 @@ class HDUpsample(OrigUpsample):
         return self.conv(x)
 
 
-class HDDownsample(OrigDownsample):
+class HDDownsample(ORIG_DOWNSAMPLE):
     COPY_OP_KEYS = (
         "parameters_manual_cast",
         "weight_function",
@@ -173,9 +99,140 @@ class HDDownsample(OrigDownsample):
         return tempop(x)
 
 
-# Necessary to monkeypatch the built in blocks before any models are loaded.
-unet.Upsample = HDUpsample
-unet.Downsample = HDDownsample
+# Create proxy classes that inherit from original UNet classes
+class ProxyUpsample(HDUpsample):
+    """Proxy class that can switch between HD and original upsampling implementations."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.orig_instance = ORIG_UPSAMPLE(*args, **kwargs)
+        # Transfer weights and parameters
+        self.orig_instance.conv = self.conv
+        
+    def forward(self, *args, **kwargs):
+        if HDCONFIG.enabled:
+            return super().forward(*args, **kwargs)
+        return self.orig_instance.forward(*args, **kwargs)
+    
+
+class ProxyDownsample(HDDownsample):
+    """Proxy class that can switch between HD and original downsampling implementations."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.orig_instance = ORIG_DOWNSAMPLE(*args, **kwargs)
+        # Transfer weights and parameters
+        self.orig_instance.op = self.op
+        
+    def forward(self, *args, **kwargs):
+        if HDCONFIG.enabled:
+            return super().forward(*args, **kwargs)
+        return self.orig_instance.forward(*args, **kwargs)
+        
+
+# Replace original classes with proxy classes
+unet.Upsample = ProxyUpsample
+unet.Downsample = ProxyDownsample
+
+logger.info("\x1b[32m[HiDiffusion]\x1b[0m Proxied UNet Upsample and Downsample classes")
+
+
+# TODO: Implement Forge FreeU compatibility
+# Try to be compatible with FreeU Advanced.
+# def try_patch_freeu_advanced():
+#     global PATCHED_FREEU  # noqa: PLW0603
+#     if PATCHED_FREEU:
+#         return
+#     # We only try one time.
+#     PATCHED_FREEU = True
+#     fua_nodes = sys.modules.get("FreeU_Advanced.nodes")
+#     if not fua_nodes:
+#         return
+
+#     def fu_forward_timestep_embed(*args: list, **kwargs: dict):
+#         fun = hd_forward_timestep_embed if HDCONFIG.enabled else ORIG_FORWARD_TIMESTEP_EMBED
+#         return fun(*args, **kwargs)
+
+#     def fu_apply_control(*args: list, **kwargs: dict):
+#         fun = hd_apply_control if HDCONFIG.enabled else ORIG_APPLY_CONTROL
+#         return fun(*args, **kwargs)
+
+#     fua_nodes.forward_timestep_embed = fu_forward_timestep_embed
+#     if not NO_CONTROLNET_WORKAROUND:
+#         fua_nodes.unet.apply_control = fu_apply_control
+#     print("** jankhidiffusion: Patched FreeU_Advanced")
+
+
+def hd_apply_control(h, control, name):
+    ctrls = control.get(name) if control is not None else None
+    if ctrls is None or len(ctrls) == 0:
+        return h
+    ctrl = ctrls.pop()
+    if ctrl is None:
+        return h
+    if ctrl.shape[-2:] != h.shape[-2:]:
+        logger.info(f"Scaling controlnet conditioning: {ctrl.shape[-2:]} -> {h.shape[-2:]}")
+        ctrl = F.interpolate(ctrl, size=h.shape[-2:], **CONTROLNET_SCALE_ARGS)
+    h += ctrl
+    return h
+
+
+class NotFound:
+    pass
+
+
+def hd_forward_timestep_embed(ts, x, emb, *args: list, **kwargs: dict):
+    transformer_options = kwargs.get("transformer_options", NotFound)
+    output_shape = kwargs.get("output_shape", NotFound)
+    transformer_options = args[1] if transformer_options is NotFound and len(args) > 1 else {}
+    output_shape = args[2] if output_shape is NotFound and len(args) > 2 else None
+    for layer in ts:
+        if isinstance(layer, HDUpsample):
+            x = layer.forward(
+                x,
+                output_shape=output_shape,
+                transformer_options=transformer_options,
+            )
+        elif isinstance(layer, HDDownsample):
+            x = layer.forward(x, transformer_options=transformer_options)
+        else:
+            x = ORIG_FORWARD_TIMESTEP_EMBED((layer,), x, emb, *args, **kwargs)
+    return x
+
+
+def apply_unet_patches():
+    """
+    Apply patches to modify UNet behavior for HiDiffusion functionality.
+    This function applies patches to the UNet model by:
+    1. Enabling the HDCONFIG flag
+    2. Overriding TimestepEmbedSequential's forward method with HiDiffusion implementation
+    3. Overriding UNet's apply_control method with HiDiffusion implementation
+    The patches allow the UNet to work with the HiDiffusion architecture and processing.
+    Note:
+        This is a side-effect function that modifies global state.
+    """
+
+    HDCONFIG.enabled = True
+    unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
+    unet.apply_control = hd_apply_control
+    logger.info("Applied UNet patches")
+
+
+def remove_unet_patches():
+    """
+    Removes patches applied to the UNet model by disabling HiDiffusion configuration and restoring original
+    forward methods.
+    This function removes patches to the UNet model by:
+    1. Disabling the HDCONFIG flag
+    2. Restores original forward method for TimestepEmbedSequential
+    3. Restores original apply_control method
+    This function should be called to restore UNet to its original state after using HiDiffusion.
+    Returns:
+        None
+    """
+
+    HDCONFIG.enabled = False
+    unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
+    unet.apply_control = ORIG_APPLY_CONTROL
+    logger.info("Removed UNet patches")
 
 
 def apply_rau_net(
@@ -261,12 +318,7 @@ def apply_rau_net(
     HDCONFIG.use_blocks = use_blocks
     HDCONFIG.two_stage_upscale = not skip_two_stage_upscale
     HDCONFIG.upscale_mode = upscale_mode
-    HDCONFIG.enabled = True
-    if unet.TimestepEmbedSequential.forward is not hd_forward_timestep_embed:
-        try_patch_freeu_advanced()
-        ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
-        unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
-    try_patch_apply_control()
+
     return (unet_patcher,)
 
 
@@ -318,31 +370,20 @@ def apply_rau_net_simple(enabled, model_type, res_mode, upscale_mode, ca_upscale
     enabled, blocks, ca_blocks, time_range, ca_time_range = configure_blocks(model_type, res)
 
     if not enabled:
-        logging.debug("** ApplyRAUNetSimple: Disabled")
+        logger.debug("** ApplyRAUNetSimple: Disabled")
         return (model.clone(),)
 
     prettyblocks = " / ".join(b if b else "none" for b in blocks)
     prettycablocks = " / ".join(b if b else "none" for b in ca_blocks)
 
-    logging.debug(
-        """** ApplyRAUNetSimple: Using preset {} {}:
-    \tupscale: {}
-    \tin/out blocks: [{}]
-    \tstart/end percent: {:.2}/{:.2}
-    \tCA upscale: {}
-    \tCA in/out blocks: [{}]
-    \tCA start/end percent: {:.2}/{:.2}""".format(
-            model_type,
-            res,
-            upscale_mode,
-            prettyblocks,
-            time_range[0],
-            time_range[1],
-            ca_upscale_mode,
-            prettycablocks,
-            ca_time_range[0],
-            ca_time_range[1],
-        )
+    logger.debug(
+        f"""** ApplyRAUNetSimple: Using preset {model_type} {res}:
+        upscale: {upscale_mode}
+        in/out blocks: [{prettyblocks}]
+        start/end percent: {time_range[0]:.2}/{time_range[1]:.2}
+        CA upscale: {ca_upscale_mode}
+        CA in/out blocks: [{prettycablocks}]
+        CA start/end percent: {ca_time_range[0]:.2}/{ca_time_range[1]:.2}"""
     )
 
     return apply_rau_net(
