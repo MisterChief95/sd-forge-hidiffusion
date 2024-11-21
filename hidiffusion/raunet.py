@@ -173,7 +173,7 @@ def apply_monkeypatch():
     unet.Upsample = HDUpsample
     unet.Downsample = HDDownsample
     unet.apply_control = hd_apply_control
-    logging.info("** jankhidiffusion: Apply  UNet monkey patches")
+    print("\x1b[32m[HiDiffusion]\x1b[0m Apply UNet monkey patches")
 
 
 def remove_monkeypatch():
@@ -181,7 +181,7 @@ def remove_monkeypatch():
     unet.Upsample = ORIG_UPSAMPLE
     unet.Downsample = ORIG_DOWNSAMPLE
     unet.apply_control = ORIG_APPLY_CONTROL
-    logging.info("** jankhidiffusion: Remove UNet monkey patches")
+    print("\x1b[32m[HiDiffusion]\x1b[0m Remove UNet monkey patches")
 
 
 def apply_rau_net(

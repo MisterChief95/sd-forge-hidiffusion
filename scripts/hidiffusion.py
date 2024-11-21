@@ -13,6 +13,9 @@ logging.basicConfig(level=logging.INFO)
 logging.info("Imports successful in RAUNet script")
 
 
+print("\x1b[32m[HiDiffusion] Script Loaded\x1b[0m")
+
+
 class RAUNetScript(scripts.Script):
     sorting_priority = 15  # Adjust this as needed
 
@@ -115,14 +118,14 @@ class RAUNetScript(scripts.Script):
                 mswmsa_simple_enabled, mswmsa_simple_model_type,
                 mswmsa_enabled, mswmsa_model_type, mswmsa_input_blocks, mswmsa_middle_blocks, mswmsa_output_blocks, 
                 mswmsa_time_mode, mswmsa_start_time, mswmsa_end_time)
-    
+
 
     def before_process(self, p, *script_args):
         enabled: bool = script_args[0]
 
         if enabled:
             apply_monkeypatch()
-            logging.info("\x1b[32mRAUNet script enabled\x1b[0m")
+            print("\x1b[32mRAUNet script enabled\x1b[0m")
 
         
     def process_before_every_sampling(self, p, *script_args, **kwargs):
@@ -227,5 +230,7 @@ class RAUNetScript(scripts.Script):
     
 
     def postprocess(self, p, processed, *args):
-        remove_monkeypatch()
+        enabled: bool = args[0]
+        if enabled:
+            remove_monkeypatch()
         remove_current_script_callbacks()
