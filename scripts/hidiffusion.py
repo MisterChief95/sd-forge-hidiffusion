@@ -6,15 +6,15 @@ from modules import scripts
 from modules.script_callbacks import remove_current_script_callbacks
 
 # Now import from your package
-from hidiffusion.raunet import apply_rau_net, apply_rau_net_simple, UPSCALE_METHODS
+from hidiffusion.raunet import apply_monkeypatch, remove_monkeypatch, apply_rau_net, apply_rau_net_simple, UPSCALE_METHODS
 from hidiffusion.attention import apply_mswmsaa_attention, apply_mswmsaa_attention_simple
 
+logging.basicConfig(level=logging.INFO)
 logging.info("Imports successful in RAUNet script")
 
 
 class RAUNetScript(scripts.Script):
     sorting_priority = 15  # Adjust this as needed
-    is_patched = False
 
     def title(self):
         return "Hidiffusion"
@@ -118,14 +118,10 @@ class RAUNetScript(scripts.Script):
     
 
     def before_process(self, p, *script_args):
-        (enabled,raunet_simple_enabled, raunet_simple_model_type, res_mode, simple_upscale_mode, simple_ca_upscale_mode,
-        raunet_enabled, raunet_model_type, input_blocks, output_blocks, time_mode, start_time, end_time, 
-        skip_two_stage_upscale, upscale_mode, ca_start_time, ca_end_time, ca_input_blocks, ca_output_blocks, ca_upscale_mode,
-        mswmsa_simple_enabled, mswmsa_simple_model_type,
-        mswmsa_enabled, mswmsa_model_type, mswmsa_input_blocks, mswmsa_middle_blocks, mswmsa_output_blocks, 
-        mswmsa_time_mode, mswmsa_start_time, mswmsa_end_time) = script_args
+        enabled: bool = script_args[0]
 
-        if enabled: 
+        if enabled:
+            apply_monkeypatch()
             logging.info("\x1b[32mRAUNet script enabled\x1b[0m")
 
         
@@ -140,25 +136,8 @@ class RAUNetScript(scripts.Script):
         # Always start with a fresh clone of the original unet
         unet = p.sd_model.forge_objects.unet.clone()
 
-        if not enabled:
-            if not RAUNetScript.is_patched:
-                return
-            
-            logging.info("\x1b[32mRAUNet script disabled, resetting modifications\x1b[0m")
-
-            # Apply RAUNet patch with enabled=False to reset any modifications
-            unet = apply_rau_net(False, unet, "", "", "", 0, 0, False, "", 0, 0, "", "", "")[0]
-            unet = apply_rau_net_simple(False, raunet_simple_model_type, res_mode, simple_upscale_mode, simple_ca_upscale_mode, unet)[0]
-
-            # Apply MSW-MSA patch with empty block settings to reset any modifications
-            unet = apply_mswmsaa_attention(unet, "", "", "", mswmsa_time_mode, 0, 0)[0]
-            unet = apply_mswmsaa_attention_simple(mswmsa_simple_model_type, unet)[0]
-
-            p.sd_model.forge_objects.unet = unet
-            RAUNetScript.is_patched = False
+        if not enabled:            
             return
-        
-        RAUNetScript.is_patched = True
 
         # Handle RAUNet
         if raunet_simple_enabled == True:  # Explicit check for True
@@ -248,4 +227,5 @@ class RAUNetScript(scripts.Script):
     
 
     def postprocess(self, p, processed, *args):
+        remove_monkeypatch()
         remove_current_script_callbacks()

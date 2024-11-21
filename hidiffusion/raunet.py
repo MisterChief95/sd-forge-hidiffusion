@@ -52,6 +52,22 @@ ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential().forward
 PATCHED_FREEU: bool = False
 
 
+def apply_monkeypatch():
+    unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
+    unet.Upsample = HDUpsample
+    unet.Downsample = HDDownsample
+    unet.apply_control = hd_apply_control
+    print("** jankhidiffusion: Monkeypatched UNet")
+
+
+def remove_monkeypatch():
+    unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
+    unet.Upsample = OrigUpsample
+    unet.Downsample = OrigDownsample
+    unet.apply_control = ORIG_APPLY_CONTROL
+    print("** jankhidiffusion: Removed monkeypatched UNet")
+
+
 # Try to be compatible with FreeU Advanced.
 def try_patch_freeu_advanced():
     global PATCHED_FREEU  # noqa: PLW0603
@@ -325,24 +341,13 @@ def apply_rau_net_simple(enabled, model_type, res_mode, upscale_mode, ca_upscale
     prettycablocks = " / ".join(b if b else "none" for b in ca_blocks)
 
     logging.debug(
-        """** ApplyRAUNetSimple: Using preset {} {}:
-    \tupscale: {}
-    \tin/out blocks: [{}]
-    \tstart/end percent: {:.2}/{:.2}
-    \tCA upscale: {}
-    \tCA in/out blocks: [{}]
-    \tCA start/end percent: {:.2}/{:.2}""".format(
-            model_type,
-            res,
-            upscale_mode,
-            prettyblocks,
-            time_range[0],
-            time_range[1],
-            ca_upscale_mode,
-            prettycablocks,
-            ca_time_range[0],
-            ca_time_range[1],
-        )
+        f"""** ApplyRAUNetSimple: Using preset {model_type} {res}:
+        upscale: {upscale_mode}
+        in/out blocks: [{prettyblocks}]
+        start/end percent: {time_range[0]:.2}/{time_range[1]:.2}
+        CA upscale: {ca_upscale_mode}
+        CA in/out blocks: [{prettycablocks}]
+        CA start/end percent: {ca_time_range[0]:.2}/{ca_time_range[1]:.2}"""
     )
 
     return apply_rau_net(
