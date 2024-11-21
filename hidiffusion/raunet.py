@@ -1,4 +1,3 @@
-import logging
 import os
 from typing import Any
 
@@ -7,6 +6,7 @@ import torch.nn.functional as F
 import backend.nn.unet as unet
 
 from .utils import *
+from .logger import logger
 
 
 class HDConfigClass:
@@ -32,7 +32,7 @@ class HDConfigClass:
     end_sigma: float | None = None
     use_blocks: float | None = None
     two_stage_upscale: bool = True
-    upscale_mode: str = "bislerp"
+    upscale_mode: str = UPSCALE_METHODS[0]
 
     def check(self, topts: dict[str, torch.Tensor]) -> bool:
         if not self.enabled or not isinstance(topts, dict):
@@ -132,6 +132,8 @@ class ProxyDownsample(HDDownsample):
 unet.Upsample = ProxyUpsample
 unet.Downsample = ProxyDownsample
 
+logger.info("\x1b[32m[HiDiffusion]\x1b[0m Proxied UNet Upsample and Downsample classes")
+
 
 # TODO: Implement Forge FreeU compatibility
 # Try to be compatible with FreeU Advanced.
@@ -167,9 +169,7 @@ def hd_apply_control(h, control, name):
     if ctrl is None:
         return h
     if ctrl.shape[-2:] != h.shape[-2:]:
-        print(
-            f"* jankhidiffusion: Scaling controlnet conditioning: {ctrl.shape[-2:]} -> {h.shape[-2:]}",
-        )
+        logger.info(f"Scaling controlnet conditioning: {ctrl.shape[-2:]} -> {h.shape[-2:]}")
         ctrl = F.interpolate(ctrl, size=h.shape[-2:], **CONTROLNET_SCALE_ARGS)
     h += ctrl
     return h
@@ -198,18 +198,41 @@ def hd_forward_timestep_embed(ts, x, emb, *args: list, **kwargs: dict):
     return x
 
 
-def apply_monkeypatch():
+def apply_unet_patches():
+    """
+    Apply patches to modify UNet behavior for HiDiffusion functionality.
+    This function applies patches to the UNet model by:
+    1. Enabling the HDCONFIG flag
+    2. Overriding TimestepEmbedSequential's forward method with HiDiffusion implementation
+    3. Overriding UNet's apply_control method with HiDiffusion implementation
+    The patches allow the UNet to work with the HiDiffusion architecture and processing.
+    Note:
+        This is a side-effect function that modifies global state.
+    """
+
     HDCONFIG.enabled = True
     unet.TimestepEmbedSequential.forward = hd_forward_timestep_embed
     unet.apply_control = hd_apply_control
-    print("\x1b[32m[HiDiffusion]\x1b[0m Apply UNet monkey patches")
+    logger.info("Applied UNet patches")
 
 
-def remove_monkeypatch():
+def remove_unet_patches():
+    """
+    Removes patches applied to the UNet model by disabling HiDiffusion configuration and restoring original
+    forward methods.
+    This function removes patches to the UNet model by:
+    1. Disabling the HDCONFIG flag
+    2. Restores original forward method for TimestepEmbedSequential
+    3. Restores original apply_control method
+    This function should be called to restore UNet to its original state after using HiDiffusion.
+    Returns:
+        None
+    """
+
     HDCONFIG.enabled = False
     unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
     unet.apply_control = ORIG_APPLY_CONTROL
-    print("\x1b[32m[HiDiffusion]\x1b[0m Remove UNet monkey patches")
+    logger.info("Removed UNet patches")
 
 
 def apply_rau_net(

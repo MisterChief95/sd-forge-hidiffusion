@@ -1,26 +1,22 @@
-import logging
-
 import gradio as gr
 from backend.patcher.unet import UnetPatcher
 from modules import scripts
 from modules.script_callbacks import remove_current_script_callbacks
 
 # Now import from your package
-from hidiffusion.raunet import apply_monkeypatch, remove_monkeypatch, apply_rau_net, apply_rau_net_simple, UPSCALE_METHODS
+from hidiffusion.raunet import apply_unet_patches, remove_unet_patches, apply_rau_net, apply_rau_net_simple, UPSCALE_METHODS
 from hidiffusion.attention import apply_mswmsaa_attention, apply_mswmsaa_attention_simple
-
-logging.basicConfig(level=logging.INFO)
-logging.info("Imports successful in RAUNet script")
+from hidiffusion.logger import logger
 
 
-print("\x1b[32m[HiDiffusion] Script Loaded\x1b[0m")
+logger.info("Script Loaded")
 
 
 class RAUNetScript(scripts.Script):
     sorting_priority = 15  # Adjust this as needed
 
     def title(self):
-        return "Hidiffusion"
+        return "HiDiffusion"
 
     def show(self, is_img2img):
         return scripts.AlwaysVisible
@@ -124,7 +120,7 @@ class RAUNetScript(scripts.Script):
         enabled: bool = script_args[0]
 
         if enabled:
-            apply_monkeypatch()
+            apply_unet_patches()
             print("\x1b[32mRAUNet script enabled\x1b[0m")
 
         
@@ -219,12 +215,12 @@ class RAUNetScript(scripts.Script):
         # Always update the unet
         p.sd_model.forge_objects.unet = unet
 
-        # Add debug logging
-        logging.debug(f"RAUNet Simple enabled: {raunet_simple_enabled}, Model Type: {raunet_simple_model_type}")
-        logging.debug(f"RAUNet enabled: {raunet_enabled}, Model Type: {raunet_model_type}")
-        logging.debug(f"MSW-MSA Simple enabled: {mswmsa_simple_enabled}, Model Type: {mswmsa_simple_model_type}")
-        logging.debug(f"MSW-MSA enabled: {mswmsa_enabled}, Model Type: {mswmsa_model_type}")
-        logging.debug(f"MSW-MSA settings: Input Blocks: {mswmsa_input_blocks}, Output Blocks: {mswmsa_output_blocks}")
+        # Add debug logger
+        logger.debug(f"RAUNet Simple enabled: {raunet_simple_enabled}, Model Type: {raunet_simple_model_type}")
+        logger.debug(f"RAUNet enabled: {raunet_enabled}, Model Type: {raunet_model_type}")
+        logger.debug(f"MSW-MSA Simple enabled: {mswmsa_simple_enabled}, Model Type: {mswmsa_simple_model_type}")
+        logger.debug(f"MSW-MSA enabled: {mswmsa_enabled}, Model Type: {mswmsa_model_type}")
+        logger.debug(f"MSW-MSA settings: Input Blocks: {mswmsa_input_blocks}, Output Blocks: {mswmsa_output_blocks}")
 
         return
     
@@ -232,5 +228,5 @@ class RAUNetScript(scripts.Script):
     def postprocess(self, p, processed, *args):
         enabled: bool = args[0]
         if enabled:
-            remove_monkeypatch()
+            remove_unet_patches()
         remove_current_script_callbacks()
