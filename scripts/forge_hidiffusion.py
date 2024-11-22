@@ -67,6 +67,13 @@ class ForgeHiDiffusion(scripts.Script):
 
                 with InputAccordion(False, label="Advanced Options") as use_raunet_advanced:
                     with gr.Group():
+                        gr.HTML(
+                            """
+                            Recommended block settings:<br>
+                            <ul><li>SD 1.5/2.1: Input 3 corresponds to Output 8, Input 6 to Output 5, Input 9 to Output 2</li>
+                            <li>SDXL: Input 3 corresponds to Output 5, Input 6 to Output 2</li></ul>
+                            """
+                        )
                         raunet_input_blocks = gr.Text(label="Input Blocks", value="3")
                         raunet_output_blocks = gr.Text(label="Output Blocks", value="8")
                         gr.Markdown(
@@ -126,7 +133,11 @@ class ForgeHiDiffusion(scripts.Script):
                     gr.Markdown("Advanced MSW-MSA settings. For fine-tuning performance and quality improvements.")
                     with gr.Group():
                         gr.HTML(
-                            "Recommended block settings:<br><ul><li>SD 1.5/2.1: input 1,2, output 9,10,11</li><li>SDXL: input 4,5, output 4,5</li></ul>"
+                            """
+                            Recommended block settings:<br>
+                            <ul><li>SD 1.5/2.1: input 1,2 for output 9,10,11</li>
+                            <li>SDXL: input 4,5 for output 4,5</li></ul>
+                            """
                         )
                         mswmsa_input_blocks = gr.Text(label="Input Blocks", value="1,2")
                         mswmsa_middle_blocks = gr.Text(label="Middle Blocks", value="")
