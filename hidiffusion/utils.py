@@ -60,7 +60,10 @@ def convert_time(predictor: Prediction, time_mode: str, start_time: float, end_t
         if not (0.0 <= end_time <= 1.0):
             raise ValueError("end percent must be between 0 and 1")
 
-    return (predictor.percent_to_sigma(start_time), predictor.percent_to_sigma(end_time))
+    return (
+        predictor.percent_to_sigma(start_time),
+        predictor.percent_to_sigma(end_time),
+    )
 
 
 def get_sigma(options: dict[str, torch.Tensor], key="sigmas") -> float | None:

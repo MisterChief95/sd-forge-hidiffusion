@@ -13,7 +13,11 @@ from backend.modules.k_prediction import Prediction
 
 
 def window_partition(
-    x: torch.Tensor, window_size: tuple[int, int], shift_size: int | tuple[int, int], height: int, width: int
+    x: torch.Tensor,
+    window_size: tuple[int, int],
+    shift_size: int | tuple[int, int],
+    height: int,
+    width: int,
 ) -> torch.Tensor:
     """Partitions spatial input tensor into windows.
     This function takes a tensor and divides it into windows according to specified window size,
@@ -59,7 +63,11 @@ def window_partition(
 
 
 def window_reverse(
-    windows: torch.Tensor, window_size: tuple[int, int], shift_size: int | tuple[int, int], height: int, width: int
+    windows: torch.Tensor,
+    window_size: tuple[int, int],
+    shift_size: int | tuple[int, int],
+    height: int,
+    width: int,
 ) -> torch.Tensor:
     """
     Reverses the window partitioning operation by reconstructing the original tensor from window segments.
@@ -198,7 +206,10 @@ def apply_mswmsaa_attention(
     start_sigma, end_sigma = convert_time(predictor, time_mode, start_time, end_time)
 
     def attn1_patch(
-        q: torch.Tensor | None, k: torch.Tensor | None, v: torch.Tensor | None, extra_options
+        q: torch.Tensor | None,
+        k: torch.Tensor | None,
+        v: torch.Tensor | None,
+        extra_options,
     ) -> tuple[torch.Tensor | None, ...]:
         """
         Applies Multiscale Window Multi-head Self-Attention (MSW-MSA) partitioning to query, key and value tensors.
