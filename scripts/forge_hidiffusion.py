@@ -24,11 +24,11 @@ logger.info("Script Loaded")
 MODES = ["Simple", "Advanced"]
 
 
-class RAUNetScript(scripts.Script):
+class ForgeHiDiffusion(scripts.Script):
     sorting_priority = 15  # Adjust this as needed
 
     def title(self):
-        return "HiDiffusion"
+        return "Forge HiDiffusion"
 
     def show(self, is_img2img):
         return scripts.AlwaysVisible
