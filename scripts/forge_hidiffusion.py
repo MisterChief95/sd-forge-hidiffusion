@@ -36,10 +36,9 @@ class ForgeHiDiffusion(scripts.Script):
     def ui(self, *args, **kwargs):
         with InputAccordion(False, label=self.title()) as enabled:
             model_type = gr.Radio(
-                choices=["SD15", "SDXL"],
+                choices=["SD 1.5/2.1", "SDXL"],
                 value=lambda: "SDXL",
                 label="Model Type",
-                info="Note: Use SD15 setting for SD 2.1 as well.",
             )
 
             with gr.Tab("RAUNet"):
@@ -68,10 +67,17 @@ class ForgeHiDiffusion(scripts.Script):
 
                 with InputAccordion(False, label="Advanced Options") as use_raunet_advanced:
                     with gr.Group():
+                        gr.HTML(
+                            """
+                            Recommended block settings:<br>
+                            <ul><li>SD 1.5/2.1: Input 3 corresponds to Output 8, Input 6 to Output 5, Input 9 to Output 2</li>
+                            <li>SDXL: Input 3 corresponds to Output 5, Input 6 to Output 2</li></ul>
+                            """
+                        )
                         raunet_input_blocks = gr.Text(label="Input Blocks", value="3")
                         raunet_output_blocks = gr.Text(label="Output Blocks", value="8")
                         gr.Markdown(
-                            "For SD1.5: Input 3 corresponds to Output 8, Input 6 to Output 5, Input 9 to Output 2"
+                            "For SD1.5/2.1: Input 3 corresponds to Output 8, Input 6 to Output 5, Input 9 to Output 2"
                         )
                         gr.Markdown("For SDXL: Input 3 corresponds to Output 5, Input 6 to Output 2")
 
@@ -127,7 +133,11 @@ class ForgeHiDiffusion(scripts.Script):
                     gr.Markdown("Advanced MSW-MSA settings. For fine-tuning performance and quality improvements.")
                     with gr.Group():
                         gr.HTML(
-                            "Recommended block settings:<br><ul><li>SD15: input 1,2, output 9,10,11</li><li>SDXL: input 4,5, output 4,5</li></ul>"
+                            """
+                            Recommended block settings:<br>
+                            <ul><li>SD 1.5/2.1: input 1,2 for output 9,10,11</li>
+                            <li>SDXL: input 4,5 for output 4,5</li></ul>
+                            """
                         )
                         mswmsa_input_blocks = gr.Text(label="Input Blocks", value="1,2")
                         mswmsa_middle_blocks = gr.Text(label="Middle Blocks", value="")
@@ -158,7 +168,7 @@ class ForgeHiDiffusion(scripts.Script):
 
         # Add JavaScript to handle visibility and model-specific settings
         def update_raunet_settings(model_type):
-            if model_type == "SD15":
+            if model_type == "SD 1.5/2.1":
                 return "3", "8", "4", "8", 0.0, 0.45, 0.0, 0.3
             else:  # SDXL
                 return (
@@ -188,7 +198,7 @@ class ForgeHiDiffusion(scripts.Script):
         )
 
         def update_mswmsa_settings(model_type):
-            if model_type == "SD15":
+            if model_type == "SD 1.5/2.1":
                 return "1,2", "", "9,10,11"
             else:  # SDXL
                 return "4,5", "", "4,5"

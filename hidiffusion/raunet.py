@@ -369,7 +369,7 @@ def configure_blocks(
     enabled = True
 
     model_configs = {
-        "SD15": {
+        "SD 1.5/2.1": {
             "blocks": ("3", "8"),
             "ca_blocks": ("1", "11"),
             "modes": {
