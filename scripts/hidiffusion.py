@@ -1,5 +1,6 @@
 import gradio as gr
 from modules import scripts
+from modules.ui_components import InputAccordion
 from modules.script_callbacks import remove_current_script_callbacks
 
 # Now import from your package
@@ -33,8 +34,7 @@ class RAUNetScript(scripts.Script):
         return scripts.AlwaysVisible
 
     def ui(self, *args, **kwargs):
-        with gr.Accordion(open=False, label=self.title()):
-            enabled = gr.Checkbox(label="Enabled", value=False)
+        with InputAccordion(False, label=self.title()) as enabled:
             model_type = gr.Radio(
                 choices=["SD15", "SDXL"],
                 value=lambda: "SDXL",
@@ -200,6 +200,34 @@ class RAUNetScript(scripts.Script):
             inputs=[model_type],
             outputs=[mswmsa_input_blocks, mswmsa_middle_blocks, mswmsa_output_blocks],
         )
+
+        self.infotext_fields = [
+            (enabled, lambda d: 'raunet_enabled' in d or 'mswmsa_enabled' in d),
+            (model_type, "model_type"),
+            (raunet_enabled, "raunet_enabled"),
+            (raunet_mode, "raunet_mode"),
+            (raunet_res_mode, "raunet_res_mode"),
+            (raunet_input_blocks, "raunet_input_blocks"),
+            (raunet_output_blocks, "raunet_output_blocks"),
+            (raunet_time_mode, "raunet_time_mode"),
+            (raunet_start_time, "raunet_start_time"),
+            (raunet_end_time, "raunet_end_time"),
+            (raunet_skip_two_stage_upscale, "raunet_skip_two_stage_upscale"),
+            (raunet_upscale_mode, "raunet_upscale_mode"),
+            (raunet_ca_end_time, "raunet_ca_end_time"),
+            (raunet_ca_input_blocks, "raunet_ca_input_blocks"),
+            (raunet_ca_output_blocks, "raunet_ca_output_blocks"),
+            (raunet_ca_start_time, "raunet_ca_start_time"),
+            (raunet_ca_upscale_mode, "raunet_ca_upscale_mode"),
+            (mswmsa_enabled, "mswmsa_enabled"),
+            (mswmsa_mode, "mswmsa_mode"),
+            (mswmsa_input_blocks, "mswmsa_input_blocks"),
+            (mswmsa_middle_blocks, "mswmsa_middle_blocks"),
+            (mswmsa_output_blocks, "mswmsa_output_blocks"),
+            (mswmsa_time_mode, "mswmsa_time_mode"),
+            (mswmsa_start_time, "mswmsa_start_time"),
+            (mswmsa_end_time, "mswmsa_end_time"),
+        ]
 
         return (
             enabled,
