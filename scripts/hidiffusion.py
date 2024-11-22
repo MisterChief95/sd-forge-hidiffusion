@@ -45,7 +45,6 @@ class RAUNetScript(scripts.Script):
             with gr.Tab("RAUNet"):
                 gr.Markdown("RAUNet helps avoid artifacts at high resolutions.")
                 raunet_enabled = gr.Checkbox(label="RAUNet Enabled", value=lambda: True)
-                raunet_mode = gr.Radio(choices=MODES, value=MODES[0], label="Mode")
                 raunet_res_mode = gr.Radio(
                     choices=[
                         "low (1024 or lower)",
@@ -67,7 +66,7 @@ class RAUNetScript(scripts.Script):
                     label="CA Upscale Mode",
                 )
 
-                with gr.Accordion("Advanced Options", open=False):
+                with InputAccordion(False, label="Advanced Options") as use_raunet_advanced:
                     with gr.Group():
                         raunet_input_blocks = gr.Text(label="Input Blocks", value="3")
                         raunet_output_blocks = gr.Text(label="Output Blocks", value="8")
@@ -123,9 +122,8 @@ class RAUNetScript(scripts.Script):
                     "Simplified MSW-MSA for easier setup. Can improve performance and quality at high resolutions."
                 )
                 mswmsa_enabled = gr.Checkbox(label="MSW-MSA Enabled", value=lambda: True)
-                mswmsa_mode = gr.Radio(choices=MODES, value=MODES[0], label="Mode")
 
-                with gr.Accordion("MSW-MSA Advanced", open=False):
+                with InputAccordion(False, label="MSW-MSA Advanced") as use_mswmsa_advanced:
                     with gr.Group():
                         gr.Markdown("Advanced MSW-MSA settings. For fine-tuning performance and quality improvements.")
                         mswmsa_input_blocks = gr.Text(label="Input Blocks", value="1,2")
@@ -205,7 +203,7 @@ class RAUNetScript(scripts.Script):
             (enabled, lambda d: 'raunet_enabled' in d or 'mswmsa_enabled' in d),
             (model_type, "model_type"),
             (raunet_enabled, "raunet_enabled"),
-            (raunet_mode, "raunet_mode"),
+            (use_raunet_advanced, "use_raunet_advanced"),
             (raunet_res_mode, "raunet_res_mode"),
             (raunet_input_blocks, "raunet_input_blocks"),
             (raunet_output_blocks, "raunet_output_blocks"),
@@ -220,7 +218,7 @@ class RAUNetScript(scripts.Script):
             (raunet_ca_start_time, "raunet_ca_start_time"),
             (raunet_ca_upscale_mode, "raunet_ca_upscale_mode"),
             (mswmsa_enabled, "mswmsa_enabled"),
-            (mswmsa_mode, "mswmsa_mode"),
+            (use_mswmsa_advanced, "use_mswmsa_advanced"),
             (mswmsa_input_blocks, "mswmsa_input_blocks"),
             (mswmsa_middle_blocks, "mswmsa_middle_blocks"),
             (mswmsa_output_blocks, "mswmsa_output_blocks"),
@@ -233,7 +231,7 @@ class RAUNetScript(scripts.Script):
             enabled,
             model_type,
             raunet_enabled,
-            raunet_mode,
+            use_raunet_advanced,
             raunet_res_mode,
             raunet_input_blocks,
             raunet_output_blocks,
@@ -248,7 +246,7 @@ class RAUNetScript(scripts.Script):
             raunet_ca_start_time,
             raunet_ca_upscale_mode,
             mswmsa_enabled,
-            mswmsa_mode,
+            use_mswmsa_advanced,
             mswmsa_input_blocks,
             mswmsa_middle_blocks,
             mswmsa_output_blocks,
@@ -268,7 +266,7 @@ class RAUNetScript(scripts.Script):
             enabled,
             model_type,
             raunet_enabled,
-            raunet_mode,
+            use_raunet_advanced,
             raunet_res_mode,
             raunet_input_blocks,
             raunet_output_blocks,
@@ -283,7 +281,7 @@ class RAUNetScript(scripts.Script):
             raunet_ca_start_time,
             raunet_ca_upscale_mode,
             mswmsa_enabled,
-            mswmsa_mode,
+            use_mswmsa_advanced,
             mswmsa_input_blocks,
             mswmsa_middle_blocks,
             mswmsa_output_blocks,
@@ -302,27 +300,10 @@ class RAUNetScript(scripts.Script):
 
         # Handle RAUNet
         if raunet_enabled:  # Explicit check for True
-            p.extra_generation_params.update(dict(raunet_enabled=True, raunet_mode=raunet_mode))
+            p.extra_generation_params.update(dict(raunet_enabled=True, use_raunet_advanced=use_raunet_advanced))
 
-            if raunet_mode == "Simple":
-                unet = apply_rau_net_simple(
-                    True,
-                    model_type,
-                    raunet_res_mode,
-                    raunet_upscale_mode,
-                    raunet_ca_upscale_mode,
-                    unet,
-                )[0]
-                p.extra_generation_params.update(
-                    dict(
-                        raunet_res_mode=raunet_res_mode,
-                        raunet_upscale_mode=raunet_upscale_mode,
-                        raunet_ca_upscale_mode=raunet_ca_upscale_mode,
-                    )
-                )
-            elif raunet_enabled:  # Explicit check for True
+            if use_raunet_advanced:
                 unet = apply_rau_net(
-                    True,
                     unet,
                     raunet_input_blocks,
                     raunet_output_blocks,
@@ -353,14 +334,27 @@ class RAUNetScript(scripts.Script):
                         raunet_ca_upscale_mode=raunet_ca_upscale_mode,
                     )
                 )
+            else:  # Explicit check for True
+                unet = apply_rau_net_simple(
+                    model_type,
+                    raunet_res_mode,
+                    raunet_upscale_mode,
+                    raunet_ca_upscale_mode,
+                    unet,
+                )[0]
+                p.extra_generation_params.update(
+                    dict(
+                        raunet_res_mode=raunet_res_mode,
+                        raunet_upscale_mode=raunet_upscale_mode,
+                        raunet_ca_upscale_mode=raunet_ca_upscale_mode,
+                    )
+                )
 
         # Handle MSW-MSA
         if mswmsa_enabled:
-            p.extra_generation_params.update(dict(mswmsa_enabled=True, mswmsa_mode=mswmsa_mode))
+            p.extra_generation_params.update(dict(mswmsa_enabled=True, use_mswmsa_advanced=use_mswmsa_advanced))
 
-            if mswmsa_mode == "Simple":
-                unet = apply_mswmsaa_attention_simple(model_type, unet)[0]
-            elif mswmsa_enabled:  # Explicit check for True
+            if use_mswmsa_advanced:
                 unet = apply_mswmsaa_attention(
                     unet,
                     mswmsa_input_blocks,
@@ -380,6 +374,8 @@ class RAUNetScript(scripts.Script):
                         mswmsa_end_time=mswmsa_end_time,
                     )
                 )
+            elif mswmsa_enabled:  # Explicit check for True
+                unet = apply_mswmsaa_attention_simple(model_type, unet)[0]
 
         # Always update the unet
         p.sd_model.forge_objects.unet = unet
@@ -387,8 +383,8 @@ class RAUNetScript(scripts.Script):
         # Add debug logger
         logger.debug(
             f"""HiDiffusion enabled: {enabled}, Model Type: {model_type}
-        RAUNet enabled: {raunet_enabled}, RAUNet mode: {raunet_mode}
-        MSW-MSA enabled: {mswmsa_enabled}, MSW-MSA mode: {mswmsa_mode}
+        RAUNet enabled: {raunet_enabled}, Advanced RAUNet mode: {use_raunet_advanced}
+        MSW-MSA enabled: {mswmsa_enabled}, Advanced MSW-MSA mode: {use_mswmsa_advanced}
         MSW-MSA settings: Input Blocks: {mswmsa_input_blocks}, Output Blocks: {mswmsa_output_blocks}"""
         )
 
