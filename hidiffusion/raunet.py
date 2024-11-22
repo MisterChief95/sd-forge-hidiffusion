@@ -53,7 +53,9 @@ class HDConfigClass:
 HDCONFIG = HDConfigClass()
 
 CONTROLNET_SCALE_ARGS: dict[str, Any] = {"mode": "bilinear", "align_corners": False}
-NO_CONTROLNET_WORKAROUND: bool = os.environ.get("JANKHIDIFFUSION_NO_CONTROLNET_WORKAROUND") is not None
+NO_CONTROLNET_WORKAROUND: bool = (
+    os.environ.get("JANKHIDIFFUSION_NO_CONTROLNET_WORKAROUND") is not None
+)
 ORIG_APPLY_CONTROL = unet.apply_control
 ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
 PATCHED_FREEU: bool = False
@@ -82,9 +84,17 @@ class HDUpsample(ORIG_UPSAMPLE):
     """
 
     def forward(self, x, output_shape=None, transformer_options=None):
-        if self.dims == 3 or not self.use_conv or not HDCONFIG.check(transformer_options):
+        if (
+            self.dims == 3
+            or not self.use_conv
+            or not HDCONFIG.check(transformer_options)
+        ):
             return super().forward(x, output_shape=output_shape)
-        shape = output_shape[2:4] if output_shape is not None else (x.shape[2] * 4, x.shape[3] * 4)
+        shape = (
+            output_shape[2:4]
+            if output_shape is not None
+            else (x.shape[2] * 4, x.shape[3] * 4)
+        )
         if HDCONFIG.two_stage_upscale:
             x = F.interpolate(x, size=(shape[0] // 2, shape[1] // 2), mode="nearest")
         x = scale_samples(
@@ -129,7 +139,11 @@ class HDDownsample(ORIG_DOWNSAMPLE):
         super().__init__(*args, **kwargs)
 
     def forward(self, x, transformer_options=None):
-        if self.dims == 3 or not self.use_conv or not HDCONFIG.check(transformer_options):
+        if (
+            self.dims == 3
+            or not self.use_conv
+            or not HDCONFIG.check(transformer_options)
+        ):
             return super().forward(x)
         tempop = unet.conv_nd(
             self.dims,
@@ -218,7 +232,9 @@ def hd_apply_control(h, control, name):
     if ctrl is None:
         return h
     if ctrl.shape[-2:] != h.shape[-2:]:
-        logger.info(f"Scaling controlnet conditioning: {ctrl.shape[-2:]} -> {h.shape[-2:]}")
+        logger.info(
+            f"Scaling controlnet conditioning: {ctrl.shape[-2:]} -> {h.shape[-2:]}"
+        )
         ctrl = F.interpolate(ctrl, size=h.shape[-2:], **CONTROLNET_SCALE_ARGS)
     h += ctrl
     return h
@@ -231,7 +247,9 @@ class NotFound:
 def hd_forward_timestep_embed(ts, x, emb, *args: list, **kwargs: dict):
     transformer_options = kwargs.get("transformer_options", NotFound)
     output_shape = kwargs.get("output_shape", NotFound)
-    transformer_options = args[1] if transformer_options is NotFound and len(args) > 1 else {}
+    transformer_options = (
+        args[1] if transformer_options is NotFound and len(args) > 1 else {}
+    )
     output_shape = args[2] if output_shape is NotFound and len(args) > 2 else None
     for layer in ts:
         if isinstance(layer, HDUpsample):
@@ -311,7 +329,10 @@ def apply_rau_net(
         HDCONFIG.enabled = False
         if ORIG_FORWARD_TIMESTEP_EMBED is not None:
             unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
-        if unet.apply_control is not ORIG_APPLY_CONTROL and not NO_CONTROLNET_WORKAROUND:
+        if (
+            unet.apply_control is not ORIG_APPLY_CONTROL
+            and not NO_CONTROLNET_WORKAROUND
+        ):
             unet.apply_control = ORIG_APPLY_CONTROL
         return (unet_patcher,)
 
@@ -373,7 +394,9 @@ def apply_rau_net(
 
 def configure_blocks(
     model_type: str, res: str
-) -> tuple[bool, tuple[str, str], tuple[str, str], tuple[float, float], tuple[float, float]]:
+) -> tuple[
+    bool, tuple[str, str], tuple[str, str], tuple[float, float], tuple[float, float]
+]:
     enabled = True
 
     model_configs = {
@@ -411,12 +434,16 @@ def configure_blocks(
     return enabled, blocks, ca_blocks, time_range, ca_time_range
 
 
-def apply_rau_net_simple(enabled, model_type, res_mode, upscale_mode, ca_upscale_mode, model):
+def apply_rau_net_simple(
+    enabled, model_type, res_mode, upscale_mode, ca_upscale_mode, model
+):
     upscale_mode = "bicubic" if upscale_mode == "default" else upscale_mode
     ca_upscale_mode = "bicubic" if ca_upscale_mode == "default" else ca_upscale_mode
     res = res_mode.split(" ", 1)[0]
 
-    enabled, blocks, ca_blocks, time_range, ca_time_range = configure_blocks(model_type, res)
+    enabled, blocks, ca_blocks, time_range, ca_time_range = configure_blocks(
+        model_type, res
+    )
 
     if not enabled:
         logger.debug("** ApplyRAUNetSimple: Disabled")

@@ -29,7 +29,9 @@ def parse_blocks(name: str, s: str) -> set[tuple[str, int]]:
     return {(name, int(val.strip())) for val in vals if val}
 
 
-def convert_time(predictor: Prediction, time_mode: str, start_time: float, end_time: float) -> tuple[float, float]:
+def convert_time(
+    predictor: Prediction, time_mode: str, start_time: float, end_time: float
+) -> tuple[float, float]:
     """Convert time values according to specified time mode.
     This function converts time values from various modes (sigma, percent, timestep) to sigma values
     used in the diffusion process.
@@ -60,7 +62,10 @@ def convert_time(predictor: Prediction, time_mode: str, start_time: float, end_t
         if not (0.0 <= end_time <= 1.0):
             raise ValueError("end percent must be between 0 and 1")
 
-    return (predictor.percent_to_sigma(start_time), predictor.percent_to_sigma(end_time))
+    return (
+        predictor.percent_to_sigma(start_time),
+        predictor.percent_to_sigma(end_time),
+    )
 
 
 def get_sigma(options: dict[str, torch.Tensor], key="sigmas") -> float | None:
@@ -86,7 +91,9 @@ def get_sigma(options: dict[str, torch.Tensor], key="sigmas") -> float | None:
     return sigmas.detach().cpu().max().item() if sigmas is not None else None
 
 
-def check_time(options: dict[str, torch.Tensor], start_sigma: float, end_sigma: float) -> bool:
+def check_time(
+    options: dict[str, torch.Tensor], start_sigma: float, end_sigma: float
+) -> bool:
     """
     Check if the current sigma value falls within a specified range.
     Args:
