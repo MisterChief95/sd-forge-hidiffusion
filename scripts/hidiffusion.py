@@ -299,7 +299,7 @@ class RAUNetScript(scripts.Script):
         unet = p.sd_model.forge_objects.unet.clone()
 
         # Handle RAUNet
-        if raunet_enabled:  # Explicit check for True
+        if raunet_enabled:
             p.extra_generation_params.update(dict(raunet_enabled=True, use_raunet_advanced=use_raunet_advanced))
 
             if use_raunet_advanced:
@@ -334,7 +334,7 @@ class RAUNetScript(scripts.Script):
                         raunet_ca_upscale_mode=raunet_ca_upscale_mode,
                     )
                 )
-            else:  # Explicit check for True
+            else:
                 unet = apply_rau_net_simple(
                     model_type,
                     raunet_res_mode,
@@ -374,7 +374,7 @@ class RAUNetScript(scripts.Script):
                         mswmsa_end_time=mswmsa_end_time,
                     )
                 )
-            elif mswmsa_enabled:  # Explicit check for True
+            else:
                 unet = apply_mswmsaa_attention_simple(model_type, unet)[0]
 
         # Always update the unet
