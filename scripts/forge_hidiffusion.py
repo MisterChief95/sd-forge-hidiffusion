@@ -117,40 +117,40 @@ class ForgeHiDiffusion(scripts.Script):
                         raunet_ca_input_blocks = gr.Text(label="CA Input Blocks", value="4")
                         raunet_ca_output_blocks = gr.Text(label="CA Output Blocks", value="8")
 
-            with gr.Tab("MSW-MSA Simple"):
+            with gr.Tab("MSW-MSA"):
                 gr.Markdown(
                     "Simplified MSW-MSA for easier setup. Can improve performance and quality at high resolutions."
                 )
                 mswmsa_enabled = gr.Checkbox(label="MSW-MSA Enabled", value=lambda: True)
 
-                with InputAccordion(False, label="MSW-MSA Advanced") as use_mswmsa_advanced:
+                with InputAccordion(False, label="Advanced") as use_mswmsa_advanced:
+                    gr.Markdown("Advanced MSW-MSA settings. For fine-tuning performance and quality improvements.")
                     with gr.Group():
-                        gr.Markdown("Advanced MSW-MSA settings. For fine-tuning performance and quality improvements.")
+                        gr.HTML(
+                            "Recommended block settings:<br><ul><li>SD15: input 1,2, output 9,10,11</li><li>SDXL: input 4,5, output 4,5</li></ul>"
+                        )
                         mswmsa_input_blocks = gr.Text(label="Input Blocks", value="1,2")
                         mswmsa_middle_blocks = gr.Text(label="Middle Blocks", value="")
                         mswmsa_output_blocks = gr.Text(label="Output Blocks", value="9,10,11")
-                        gr.Markdown("Recommended SD15: input 1,2, output 9,10,11")
-                        gr.Markdown("Recommended SDXL: input 4,5, output 4,5")
 
-                    mswmsa_time_mode = gr.Dropdown(
-                        choices=["percent", "timestep", "sigma"],
-                        value="percent",
-                        label="Time Mode",
-                    )
-                    mswmsa_start_time = gr.Slider(
-                        label="Start Time",
-                        minimum=0.0,
-                        maximum=1.0,
-                        step=0.01,
-                        value=0.0,
-                    )
-                    mswmsa_end_time = gr.Slider(label="End Time", minimum=0.0, maximum=1.0, step=0.01, value=1.0)
-                    gr.Markdown(
-                        "Note: For very high resolutions (>2048), try starting at 0.2 or after other scaling effects end."
-                    )
+                    with gr.Group():
+                        mswmsa_time_mode = gr.Dropdown(
+                            choices=["percent", "timestep", "sigma"],
+                            value="percent",
+                            label="Time Mode",
+                        )
+                        mswmsa_start_time = gr.Slider(
+                            label="Start Time",
+                            minimum=0.0,
+                            maximum=1.0,
+                            step=0.01,
+                            value=0.0,
+                            info="For very high resolutions (>2048), try starting at 0.2 or after other scaling effects end",
+                        )
+                        mswmsa_end_time = gr.Slider(label="End Time", minimum=0.0, maximum=1.0, step=0.01, value=1.0)
 
             gr.HTML(
-                "<p><i>Note: Make sure you use the options corresponding to your model type (SD1.5 or SDXL). Otherwise, it may have no effect or fail.</i></p>"
+                "<br><p><i>Note: Make sure you use the options corresponding to your model type (SD1.5 or SDXL). Otherwise, it may have no effect or fail.</i></p>"
             )
             gr.Markdown(
                 "Compatibility: These methods may not work with other attention modifications or scaling effects targeting the same blocks."
@@ -200,7 +200,7 @@ class ForgeHiDiffusion(scripts.Script):
         )
 
         self.infotext_fields = [
-            (enabled, lambda d: 'raunet_enabled' in d or 'mswmsa_enabled' in d),
+            (enabled, lambda d: "raunet_enabled" in d or "mswmsa_enabled" in d),
             (model_type, "model_type"),
             (raunet_enabled, "raunet_enabled"),
             (use_raunet_advanced, "use_raunet_advanced"),
