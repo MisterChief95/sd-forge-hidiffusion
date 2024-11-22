@@ -57,11 +57,7 @@ def window_partition(
         channels,
     )
 
-    windows: torch.Tensor = (
-        x.permute(0, 1, 3, 2, 4, 5)
-        .contiguous()
-        .view(-1, window_size[0], window_size[1], channels)
-    )
+    windows: torch.Tensor = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size[0], window_size[1], channels)
 
     return windows.view(-1, window_size[0] * window_size[1], channels)
 
@@ -255,10 +251,7 @@ def apply_mswmsaa_attention(
         if shift == last_shift:
             shift = (shift + 1) % 4
         last_shift = shift
-        window_args = tuple(
-            get_window_args(x, orig_shape, shift) if x is not None else None
-            for x in (q, k, v)
-        )
+        window_args = tuple(get_window_args(x, orig_shape, shift) if x is not None else None for x in (q, k, v))
         try:
             if q is not None and q is k and q is v:
                 return (
@@ -268,16 +261,13 @@ def apply_mswmsaa_attention(
                     ),
                 ) * 3
             return tuple(
-                window_partition(x, *window_args[idx]) if x is not None else None
-                for idx, x in enumerate((q, k, v))
+                window_partition(x, *window_args[idx]) if x is not None else None for idx, x in enumerate((q, k, v))
             )
         except RuntimeError as exc:
             errstr = f"\x1b[31mMSW-MSA attention error: Incompatible model patches or bad resolution. Try using resolutions that are multiples of 32 or 64. Original exception: {exc}\x1b[0m"
             raise RuntimeError(errstr) from exc
 
-    def attn1_output_patch(
-        n: torch.Tensor, extra_options: dict[str, str]
-    ) -> torch.Tensor:
+    def attn1_output_patch(n: torch.Tensor, extra_options: dict[str, str]) -> torch.Tensor:
         """
         Patches the output of attention layer 1 by reversing windowing if window arguments are available.
         Args:

@@ -74,9 +74,7 @@ class RAUNetScript(scripts.Script):
                         gr.Markdown(
                             "For SD1.5: Input 3 corresponds to Output 8, Input 6 to Output 5, Input 9 to Output 2"
                         )
-                        gr.Markdown(
-                            "For SDXL: Input 3 corresponds to Output 5, Input 6 to Output 2"
-                        )
+                        gr.Markdown("For SDXL: Input 3 corresponds to Output 5, Input 6 to Output 2")
 
                     with gr.Group():
                         raunet_time_mode = gr.Dropdown(
@@ -100,9 +98,7 @@ class RAUNetScript(scripts.Script):
                             value=0.45,
                         )
 
-                    raunet_skip_two_stage_upscale = gr.Checkbox(
-                        label="Skip Two-Stage Upscale", value=False
-                    )
+                    raunet_skip_two_stage_upscale = gr.Checkbox(label="Skip Two-Stage Upscale", value=False)
 
                     with gr.Accordion(open=False, label="Cross-Attention Settings"):
                         raunet_ca_start_time = gr.Slider(
@@ -119,32 +115,22 @@ class RAUNetScript(scripts.Script):
                             step=0.01,
                             value=0.3,
                         )
-                        raunet_ca_input_blocks = gr.Text(
-                            label="CA Input Blocks", value="4"
-                        )
-                        raunet_ca_output_blocks = gr.Text(
-                            label="CA Output Blocks", value="8"
-                        )
+                        raunet_ca_input_blocks = gr.Text(label="CA Input Blocks", value="4")
+                        raunet_ca_output_blocks = gr.Text(label="CA Output Blocks", value="8")
 
             with gr.Tab("MSW-MSA Simple"):
                 gr.Markdown(
                     "Simplified MSW-MSA for easier setup. Can improve performance and quality at high resolutions."
                 )
-                mswmsa_enabled = gr.Checkbox(
-                    label="MSW-MSA Enabled", value=lambda: True
-                )
+                mswmsa_enabled = gr.Checkbox(label="MSW-MSA Enabled", value=lambda: True)
                 mswmsa_mode = gr.Radio(choices=MODES, value=MODES[0], label="Mode")
 
                 with gr.Accordion("MSW-MSA Advanced", open=False):
                     with gr.Group():
-                        gr.Markdown(
-                            "Advanced MSW-MSA settings. For fine-tuning performance and quality improvements."
-                        )
+                        gr.Markdown("Advanced MSW-MSA settings. For fine-tuning performance and quality improvements.")
                         mswmsa_input_blocks = gr.Text(label="Input Blocks", value="1,2")
                         mswmsa_middle_blocks = gr.Text(label="Middle Blocks", value="")
-                        mswmsa_output_blocks = gr.Text(
-                            label="Output Blocks", value="9,10,11"
-                        )
+                        mswmsa_output_blocks = gr.Text(label="Output Blocks", value="9,10,11")
                         gr.Markdown("Recommended SD15: input 1,2, output 9,10,11")
                         gr.Markdown("Recommended SDXL: input 4,5, output 4,5")
 
@@ -160,9 +146,7 @@ class RAUNetScript(scripts.Script):
                         step=0.01,
                         value=0.0,
                     )
-                    mswmsa_end_time = gr.Slider(
-                        label="End Time", minimum=0.0, maximum=1.0, step=0.01, value=1.0
-                    )
+                    mswmsa_end_time = gr.Slider(label="End Time", minimum=0.0, maximum=1.0, step=0.01, value=1.0)
                     gr.Markdown(
                         "Note: For very high resolutions (>2048), try starting at 0.2 or after other scaling effects end."
                     )
@@ -290,10 +274,7 @@ class RAUNetScript(scripts.Script):
 
         # Handle RAUNet
         if raunet_enabled:  # Explicit check for True
-
-            p.extra_generation_params.update(
-                dict(raunet_enabled=True, raunet_mode=raunet_mode)
-            )
+            p.extra_generation_params.update(dict(raunet_enabled=True, raunet_mode=raunet_mode))
 
             if raunet_mode == "Simple":
                 unet = apply_rau_net_simple(
@@ -347,10 +328,7 @@ class RAUNetScript(scripts.Script):
 
         # Handle MSW-MSA
         if mswmsa_enabled:
-
-            p.extra_generation_params.update(
-                dict(mswmsa_enabled=True, mswmsa_mode=mswmsa_mode)
-            )
+            p.extra_generation_params.update(dict(mswmsa_enabled=True, mswmsa_mode=mswmsa_mode))
 
             if mswmsa_mode == "Simple":
                 unet = apply_mswmsaa_attention_simple(model_type, unet)[0]
