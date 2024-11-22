@@ -285,7 +285,6 @@ def remove_unet_patches():
 
 
 def apply_rau_net(
-    enabled,
     unet_patcher,
     input_blocks,
     output_blocks,
@@ -307,13 +306,6 @@ def apply_rau_net(
     ca_use_blocks |= parse_blocks("output", ca_output_blocks)
 
     unet_patcher = unet_patcher.clone()
-    if not enabled:
-        HDCONFIG.enabled = False
-        if ORIG_FORWARD_TIMESTEP_EMBED is not None:
-            unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
-        if unet.apply_control is not ORIG_APPLY_CONTROL and not NO_CONTROLNET_WORKAROUND:
-            unet.apply_control = ORIG_APPLY_CONTROL
-        return (unet_patcher,)
 
     # Access model_sampling through the actual model object
     ms = unet_patcher.model.predictor
@@ -411,7 +403,7 @@ def configure_blocks(
     return enabled, blocks, ca_blocks, time_range, ca_time_range
 
 
-def apply_rau_net_simple(enabled, model_type, res_mode, upscale_mode, ca_upscale_mode, model):
+def apply_rau_net_simple(model_type, res_mode, upscale_mode, ca_upscale_mode, model):
     upscale_mode = "bicubic" if upscale_mode == "default" else upscale_mode
     ca_upscale_mode = "bicubic" if ca_upscale_mode == "default" else ca_upscale_mode
     res = res_mode.split(" ", 1)[0]
@@ -419,7 +411,7 @@ def apply_rau_net_simple(enabled, model_type, res_mode, upscale_mode, ca_upscale
     enabled, blocks, ca_blocks, time_range, ca_time_range = configure_blocks(model_type, res)
 
     if not enabled:
-        logger.debug("** ApplyRAUNetSimple: Disabled")
+        logger.debug("Disabled RAUNet due to low resolution mode")
         return (model.clone(),)
 
     prettyblocks = " / ".join(b if b else "none" for b in blocks)
@@ -436,7 +428,6 @@ def apply_rau_net_simple(enabled, model_type, res_mode, upscale_mode, ca_upscale
     )
 
     return apply_rau_net(
-        True,  # noqa: FBT003
         model,
         *blocks,
         "percent",
