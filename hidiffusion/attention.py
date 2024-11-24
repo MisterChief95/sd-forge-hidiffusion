@@ -312,7 +312,7 @@ def apply_mswmsaa_attention_simple(model_type: str, model: UnetPatcher) -> UnetP
 
     time_range: tuple[float] = (0.2, 1.0)
 
-    if model_type == "SD15":
+    if model_type == "SD 1.5/2.1":
         blocks: tuple[str] = ("1,2", "", "11,10,9")
     elif model_type == "SDXL":
         blocks: tuple[str] = ("4,5", "", "5,4")

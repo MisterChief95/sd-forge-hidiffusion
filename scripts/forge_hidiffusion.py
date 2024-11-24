@@ -4,18 +4,18 @@ from modules.processing import StableDiffusionProcessing
 from modules.ui_components import InputAccordion
 from modules.script_callbacks import remove_current_script_callbacks
 
-from hidiffusion.raunet import (
-    apply_unet_patches,
-    remove_unet_patches,
-    apply_rau_net,
-    apply_rau_net_simple,
-    UPSCALE_METHODS,
-)
 from hidiffusion.attention import (
     apply_mswmsaa_attention,
     apply_mswmsaa_attention_simple,
 )
 from hidiffusion.logger import logger
+from hidiffusion.raunet import (
+    apply_unet_patches,
+    remove_unet_patches,
+    apply_rau_net,
+    apply_rau_net_simple,
+)
+from hidiffusion.types import UPSCALE_METHODS
 
 
 logger.info("Script Loaded")

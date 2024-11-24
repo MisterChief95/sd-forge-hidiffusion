@@ -6,9 +6,6 @@ from backend.modules.k_prediction import Prediction
 from packages_3rdparty.comfyui_lora_collection.utils import bislerp
 
 
-UPSCALE_METHODS = ("bicubic", "bislerp", "bilinear", "nearest-exact", "area")
-
-
 def parse_blocks(name: str, s: str) -> set[tuple[str, int]]:
     """Parse a comma-separated string into a set of (name, int) tuples.
     This function takes a name and a comma-separated string of integers, and returns
