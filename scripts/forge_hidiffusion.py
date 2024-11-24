@@ -1,9 +1,9 @@
 import gradio as gr
 from modules import scripts
+from modules.processing import StableDiffusionProcessing
 from modules.ui_components import InputAccordion
 from modules.script_callbacks import remove_current_script_callbacks
 
-# Now import from your package
 from hidiffusion.raunet import (
     apply_unet_patches,
     remove_unet_patches,
@@ -122,6 +122,12 @@ class ForgeHiDiffusion(scripts.Script):
                         )
                         raunet_ca_input_blocks = gr.Text(label="CA Input Blocks", value="4")
                         raunet_ca_output_blocks = gr.Text(label="CA Output Blocks", value="8")
+
+                use_raunet_advanced.change(
+                    fn=lambda use_advanced_raunet: gr.Radio(visible=not use_advanced_raunet),
+                    inputs=[use_raunet_advanced],
+                    outputs=[raunet_res_mode],
+                )
 
             with gr.Tab("MSW-MSA"):
                 gr.Markdown(
@@ -271,7 +277,7 @@ class ForgeHiDiffusion(scripts.Script):
         if enabled:
             apply_unet_patches()
 
-    def process_before_every_sampling(self, p, *script_args, **kwargs):
+    def process_before_every_sampling(self, p: StableDiffusionProcessing, *script_args, **kwargs):
         (
             enabled,
             model_type,
@@ -327,7 +333,7 @@ class ForgeHiDiffusion(scripts.Script):
                     raunet_ca_input_blocks,
                     raunet_ca_output_blocks,
                     raunet_ca_upscale_mode,
-                )[0]
+                )
                 p.extra_generation_params.update(
                     dict(
                         raunet_input_blocks=raunet_input_blocks,
@@ -351,7 +357,7 @@ class ForgeHiDiffusion(scripts.Script):
                     raunet_upscale_mode,
                     raunet_ca_upscale_mode,
                     unet,
-                )[0]
+                )
                 p.extra_generation_params.update(
                     dict(
                         raunet_res_mode=raunet_res_mode,
@@ -373,7 +379,7 @@ class ForgeHiDiffusion(scripts.Script):
                     mswmsa_time_mode,
                     mswmsa_start_time,
                     mswmsa_end_time,
-                )[0]
+                )
                 p.extra_generation_params.update(
                     dict(
                         mswmsa_input_blocks=mswmsa_input_blocks,
@@ -385,7 +391,7 @@ class ForgeHiDiffusion(scripts.Script):
                     )
                 )
             else:
-                unet = apply_mswmsaa_attention_simple(model_type, unet)[0]
+                unet = apply_mswmsaa_attention_simple(model_type, unet)
 
         # Always update the unet
         p.sd_model.forge_objects.unet = unet

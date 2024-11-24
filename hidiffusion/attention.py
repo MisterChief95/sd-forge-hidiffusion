@@ -168,7 +168,7 @@ def apply_mswmsaa_attention(
     time_mode: str,
     start_time: float,
     end_time: float,
-) -> tuple[UnetPatcher]:
+) -> UnetPatcher:
     """Applies Multi-Scale Window Masked Self-Attention (MSW-MSA) to specific UNet blocks.
     This function implements MSW-MSA attention mechanism by patching the attention layers
     in specified UNet blocks. It enables shifted window-based self-attention for better
@@ -183,7 +183,7 @@ def apply_mswmsaa_attention(
         start_time (float): Starting time/step for applying attention.
         end_time (float): Ending time/step for applying attention.
     Returns:
-        tuple: Contains the modified unet_patcher object.
+        UnetPatcher: modified unet.
     Raises:
         RuntimeError: If window partitioning fails due to incompatible model patches
                      or incorrect input resolution. Resolution should be multiples of
@@ -290,7 +290,8 @@ def apply_mswmsaa_attention(
 
     unet_patcher.set_model_attn1_patch(attn1_patch)
     unet_patcher.set_model_attn1_output_patch(attn1_output_patch)
-    return (unet_patcher,)
+
+    return unet_patcher
 
 
 def apply_mswmsaa_attention_simple(model_type: str, model: UnetPatcher) -> UnetPatcher:
