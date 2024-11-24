@@ -1,5 +1,5 @@
 # Forge HiDiffusion
-A port of [Panchovix's JankHidiffusion](https://github.com/Panchovix/reforge_jankhidiffusion) from (reForge)[https://github.com/Panchovix/stable-diffusion-webui-reForge] to [lllyasviel's Forge](https://github.com/lllyasviel/stable-diffusion-webui-forge)
+A port of [Panchovix's JankHidiffusion](https://github.com/Panchovix/reforge_jankhidiffusion) from [reForge](https://github.com/Panchovix/stable-diffusion-webui-reForge) to [lllyasviel's Forge](https://github.com/lllyasviel/stable-diffusion-webui-forge)
 
 HiDiffusion is a technique that improves the ability to quickly generate at higher resolutions without structural collapse.
 
