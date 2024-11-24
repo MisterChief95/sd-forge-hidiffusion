@@ -1,10 +1,12 @@
-import os
 from typing import Any
 
 import torch
 import torch.nn.functional as F
 
+from backend.modules.k_model import KModel
+from backend.modules.k_prediction import Prediction
 import backend.nn.unet as unet
+from backend.patcher.unet import UnetPatcher
 
 from .utils import (
     check_time,
@@ -43,9 +45,7 @@ class HDConfigClass:
     upscale_mode: str = UPSCALE_METHODS[0]
 
     def check(self, topts: dict[str, torch.Tensor]) -> bool:
-        if not self.enabled or not isinstance(topts, dict):
-            return False
-        if topts.get("block") not in self.use_blocks:
+        if not self.enabled or not isinstance(topts, dict) or topts.get("block") not in self.use_blocks:
             return False
         return check_time(topts, self.start_sigma, self.end_sigma)
 
@@ -53,10 +53,8 @@ class HDConfigClass:
 HDCONFIG = HDConfigClass()
 
 CONTROLNET_SCALE_ARGS: dict[str, Any] = {"mode": "bilinear", "align_corners": False}
-NO_CONTROLNET_WORKAROUND: bool = os.environ.get("JANKHIDIFFUSION_NO_CONTROLNET_WORKAROUND") is not None
 ORIG_APPLY_CONTROL = unet.apply_control
 ORIG_FORWARD_TIMESTEP_EMBED = unet.TimestepEmbedSequential.forward
-PATCHED_FREEU: bool = False
 ORIG_UPSAMPLE = unet.Upsample
 ORIG_DOWNSAMPLE = unet.Downsample
 
@@ -184,32 +182,6 @@ unet.Downsample = ProxyDownsample
 logger.info("Proxied UNet Upsample and Downsample classes")
 
 
-# TODO: Implement Forge FreeU compatibility
-# Try to be compatible with FreeU Advanced.
-# def try_patch_freeu_advanced():
-#     global PATCHED_FREEU  # noqa: PLW0603
-#     if PATCHED_FREEU:
-#         return
-#     # We only try one time.
-#     PATCHED_FREEU = True
-#     fua_nodes = sys.modules.get("FreeU_Advanced.nodes")
-#     if not fua_nodes:
-#         return
-
-#     def fu_forward_timestep_embed(*args: list, **kwargs: dict):
-#         fun = hd_forward_timestep_embed if HDCONFIG.enabled else ORIG_FORWARD_TIMESTEP_EMBED
-#         return fun(*args, **kwargs)
-
-#     def fu_apply_control(*args: list, **kwargs: dict):
-#         fun = hd_apply_control if HDCONFIG.enabled else ORIG_APPLY_CONTROL
-#         return fun(*args, **kwargs)
-
-#     fua_nodes.forward_timestep_embed = fu_forward_timestep_embed
-#     if not NO_CONTROLNET_WORKAROUND:
-#         fua_nodes.unet.apply_control = fu_apply_control
-#     print("** jankhidiffusion: Patched FreeU_Advanced")
-
-
 def hd_apply_control(h, control, name):
     ctrls = control.get(name) if control is not None else None
     if ctrls is None or len(ctrls) == 0:
@@ -285,39 +257,39 @@ def remove_unet_patches():
 
 
 def apply_rau_net(
-    unet_patcher,
-    input_blocks,
-    output_blocks,
-    time_mode,
-    start_time,
-    end_time,
-    skip_two_stage_upscale,
-    upscale_mode,
-    ca_start_time,
-    ca_end_time,
-    ca_input_blocks,
-    ca_output_blocks,
-    ca_upscale_mode,
-):
+    unet_patcher: UnetPatcher,
+    input_blocks: str,
+    output_blocks: str,
+    time_mode: str,
+    start_time: float,
+    end_time: float,
+    skip_two_stage_upscale: bool,
+    upscale_mode: str,
+    ca_start_time: float,
+    ca_end_time: float,
+    ca_input_blocks: str,
+    ca_output_blocks: str,
+    ca_upscale_mode: str,
+) -> UnetPatcher:
     global ORIG_FORWARD_TIMESTEP_EMBED
     use_blocks = parse_blocks("input", input_blocks)
     use_blocks |= parse_blocks("output", output_blocks)
     ca_use_blocks = parse_blocks("input", ca_input_blocks)
     ca_use_blocks |= parse_blocks("output", ca_output_blocks)
 
-    unet_patcher = unet_patcher.clone()
+    unet_patcher: UnetPatcher = unet_patcher.clone()
 
-    # Access model_sampling through the actual model object
-    ms = unet_patcher.model.predictor
+    kmodel: KModel = unet_patcher.model
+    predictor: Prediction = kmodel.predictor
 
     HDCONFIG.start_sigma, HDCONFIG.end_sigma = convert_time(
-        ms,
+        predictor,
         time_mode,
         start_time,
         end_time,
     )
     ca_start_sigma, ca_end_sigma = convert_time(
-        ms,
+        predictor,
         time_mode,
         ca_start_time,
         ca_end_time,
@@ -360,7 +332,7 @@ def apply_rau_net(
     HDCONFIG.two_stage_upscale = not skip_two_stage_upscale
     HDCONFIG.upscale_mode = upscale_mode
 
-    return (unet_patcher,)
+    return unet_patcher
 
 
 def configure_blocks(
@@ -390,11 +362,11 @@ def configure_blocks(
     }
 
     if model_type not in model_configs:
-        raise ValueError("Unknown model_type")
+        raise ValueError("Unknown model_type", model_type)
 
     config = model_configs[model_type]
     if res not in config["modes"]:
-        raise ValueError("Unknown res_mode")
+        raise ValueError("Unknown resolution mode", res)
 
     mode_config = config["modes"][res]
     enabled, ca_blocks, time_range, ca_time_range = mode_config
@@ -403,22 +375,22 @@ def configure_blocks(
     return enabled, blocks, ca_blocks, time_range, ca_time_range
 
 
-def apply_rau_net_simple(model_type, res_mode, upscale_mode, ca_upscale_mode, model):
-    upscale_mode = "bicubic" if upscale_mode == "default" else upscale_mode
-    ca_upscale_mode = "bicubic" if ca_upscale_mode == "default" else ca_upscale_mode
+def apply_rau_net_simple(
+    model_type: str, res_mode: str, upscale_mode: str, ca_upscale_mode: str, unet_patcher: UnetPatcher
+) -> UnetPatcher:
     res = res_mode.split(" ", 1)[0]
 
     enabled, blocks, ca_blocks, time_range, ca_time_range = configure_blocks(model_type, res)
 
     if not enabled:
         logger.debug("Disabled RAUNet due to low resolution mode")
-        return (model.clone(),)
+        return (unet_patcher.clone(),)
 
     prettyblocks = " / ".join(b if b else "none" for b in blocks)
     prettycablocks = " / ".join(b if b else "none" for b in ca_blocks)
 
     logger.debug(
-        f"""** ApplyRAUNetSimple: Using preset {model_type} {res}:
+        f"""Applying RAUNet using preset: {model_type} - {res}:
         upscale: {upscale_mode}
         in/out blocks: [{prettyblocks}]
         start/end percent: {time_range[0]:.2}/{time_range[1]:.2}
@@ -428,7 +400,7 @@ def apply_rau_net_simple(model_type, res_mode, upscale_mode, ca_upscale_mode, mo
     )
 
     return apply_rau_net(
-        model,
+        unet_patcher,
         *blocks,
         "percent",
         *time_range,
