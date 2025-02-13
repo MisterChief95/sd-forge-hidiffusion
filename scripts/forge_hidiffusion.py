@@ -172,9 +172,8 @@ class ForgeHiDiffusion(scripts.Script):
                 "Compatibility: These methods may not work with other attention modifications or scaling effects targeting the same blocks."
             )
 
-            unpatch_button = gr.Button(
-                    value="Remove HiDiffusion Patches",
-                    info="Use this if HiDiffusion appears 'stuck' even after disabling the extension")
+            unpatch_button = gr.Button(value="Remove HiDiffusion Patches")
+            gr.HTML("Use this if HiDiffusion appears 'stuck' even after disabling the extension")
             unpatch_button.click(fn=remove_unet_patches)
 
         # Add JavaScript to handle visibility and model-specific settings
