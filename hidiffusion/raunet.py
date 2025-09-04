@@ -195,7 +195,7 @@ def configure_blocks(
             },
         },
         "SDXL": {
-            "blocks": ("3", "5"),
+            "blocks": ("4", "5"),
             "ca_blocks": ("4", "5"),
             "modes": {
                 "low": (False, None, None, None),

@@ -1,9 +1,8 @@
 import torch
 import torch.nn.functional as torchf
 
+from backend.misc.image_resize import bislerp
 from backend.modules.k_prediction import Prediction
-
-from packages_3rdparty.comfyui_lora_collection.utils import bislerp
 
 
 def parse_blocks(name: str, s: str) -> set[tuple[str, int]]:

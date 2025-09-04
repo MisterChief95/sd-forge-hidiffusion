@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import logging
 
 from .utils import (
@@ -264,7 +265,7 @@ def apply_mswmsaa_attention(
                 window_partition(x, *window_args[idx]) if x is not None else None for idx, x in enumerate((q, k, v))
             )
         except RuntimeError as exc:
-            errstr = f"\x1b[31mMSW-MSA attention error: Incompatible model patches or bad resolution. Try using resolutions that are multiples of 32 or 64. Original exception: {exc}\x1b[0m"
+            errstr = f"MSW-MSA attention error: Incompatible model patches or bad resolution. Try using resolutions that are multiples of 32 or 64"
             raise RuntimeError(errstr) from exc
 
     def attn1_output_patch(n: torch.Tensor, extra_options: dict[str, str]) -> torch.Tensor:

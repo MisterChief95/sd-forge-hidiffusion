@@ -1,6 +1,6 @@
 import gradio as gr
 from modules import scripts
-from modules.processing import StableDiffusionProcessing
+from modules.processing import StableDiffusionProcessing, StableDiffusionProcessingTxt2Img
 from modules.ui_components import InputAccordion
 from modules.script_callbacks import remove_current_script_callbacks
 
@@ -26,6 +26,10 @@ MODES = ["Simple", "Advanced"]
 
 class ForgeHiDiffusion(scripts.Script):
     sorting_priority = 15  # Adjust this as needed
+
+    def __init__(self):
+        super().__init__()
+        self.patch_applied = False
 
     def title(self):
         return "Forge HiDiffusion"
@@ -274,12 +278,7 @@ class ForgeHiDiffusion(scripts.Script):
             mswmsa_start_time,
             mswmsa_end_time,
         )
-
-    def before_process(self, p, *script_args):
-        enabled: bool = script_args[0]
-
-        if enabled:
-            apply_unet_patches()
+        
 
     def process_before_every_sampling(self, p: StableDiffusionProcessing, *script_args, **kwargs):
         (
@@ -312,6 +311,18 @@ class ForgeHiDiffusion(scripts.Script):
 
         if not enabled:
             return
+
+        if (hasattr(p, "txt2img_upscale") and p.txt2img_upscale) or p.is_hr_pass:
+            enabled = False  # Disable if quick upscaling is enabled
+            logger.info("HiDiffusion disabled due for quick Hires Fix")
+
+            if self.patch_applied:
+                remove_unet_patches()
+                self.patch_applied = False
+
+            return
+
+        apply_unet_patches()
 
         p.extra_generation_params.update(dict(model_type=model_type))
 
@@ -410,6 +421,7 @@ class ForgeHiDiffusion(scripts.Script):
 
     def postprocess(self, p, processed, *args):
         enabled: bool = args[0]
-        if enabled:
+        if enabled and self.patch_applied:
             remove_unet_patches()
+            self.patch_applied = False
         remove_current_script_callbacks()
