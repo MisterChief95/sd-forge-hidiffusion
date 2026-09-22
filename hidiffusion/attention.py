@@ -1,10 +1,12 @@
 import torch
 import torch.nn.functional as F
 import logging
+import math
 
 from .utils import (
     check_time,
     convert_time,
+    get_sigma,
     parse_blocks,
 )
 
@@ -38,29 +40,36 @@ def window_partition(
         >>> windows.shape
         torch.Size([128, 64, 128])  # 128 windows of 8x8=64 pixels each
     """
-    # int, discard, int
-    batch, _, channels = x.shape
+    batch, features, channels = x.shape
+    if height <= 0 or width <= 0 or features != height * width:
+        raise ValueError(f"Cannot reshape {features} attention tokens as {height}x{width}")
+    if window_size[0] <= 0 or window_size[1] <= 0:
+        raise ValueError(f"Invalid attention window size: {window_size}")
 
-    x = x.view(batch, height, width, channels)
+    x = x.reshape(batch, height, width, channels)
 
     if not isinstance(shift_size, (list, tuple)):
         shift_size = (shift_size, shift_size)
 
-    if sum(shift_size) > 0:
+    padded_height = math.ceil(height / window_size[0]) * window_size[0]
+    padded_width = math.ceil(width / window_size[1]) * window_size[1]
+    x = F.pad(x, (0, 0, 0, padded_width - width, 0, padded_height - height))
+
+    if any(shift_size):
         x = torch.roll(x, shifts=(-shift_size[0], -shift_size[1]), dims=(1, 2))
 
     x = x.view(
         batch,
-        height // window_size[0],
+        padded_height // window_size[0],
         window_size[0],
-        width // window_size[1],
+        padded_width // window_size[1],
         window_size[1],
         channels,
     )
 
     windows: torch.Tensor = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size[0], window_size[1], channels)
 
-    return windows.view(-1, window_size[0] * window_size[1], channels)
+    return windows.reshape(-1, window_size[0] * window_size[1], channels)
 
 
 def window_reverse(
@@ -89,32 +98,36 @@ def window_reverse(
         by properly arranging and shifting (if specified) the window segments back to their
         original positions.
     """
-    # int, discard, int
-    batch, _, channels = windows.shape
-    windows: torch.Tensor = windows.view(-1, window_size[0], window_size[1], channels)
+    _, tokens_per_window, channels = windows.shape
+    if window_size[0] <= 0 or window_size[1] <= 0 or tokens_per_window != window_size[0] * window_size[1]:
+        raise ValueError(f"Invalid attention windows with shape {tuple(windows.shape)}")
 
-    batch = int(
-        windows.shape[0] / (height * width / window_size[0] / window_size[1]),
-    )
+    padded_height = math.ceil(height / window_size[0]) * window_size[0]
+    padded_width = math.ceil(width / window_size[1]) * window_size[1]
+    windows_per_batch = (padded_height // window_size[0]) * (padded_width // window_size[1])
+    if windows.shape[0] % windows_per_batch:
+        raise ValueError("Attention window count does not match the feature shape")
+    batch = windows.shape[0] // windows_per_batch
+    windows = windows.reshape(-1, window_size[0], window_size[1], channels)
 
     x = windows.view(
         batch,
-        height // window_size[0],
-        width // window_size[1],
+        padded_height // window_size[0],
+        padded_width // window_size[1],
         window_size[0],
         window_size[1],
         -1,
     )
 
-    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(batch, height, width, -1)
+    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().reshape(batch, padded_height, padded_width, -1)
 
     if not isinstance(shift_size, (list, tuple)):
         shift_size = (shift_size, shift_size)
 
-    if sum(shift_size) > 0:
+    if any(shift_size):
         x = torch.roll(x, shifts=(shift_size[0], shift_size[1]), dims=(1, 2))
 
-    return x.view(batch, height * width, channels)
+    return x[:, :height, :width, :].reshape(batch, height * width, channels)
 
 
 def get_window_args(
@@ -130,23 +143,28 @@ def get_window_args(
         shift (int): Shift index determining the amount of window shift (0-3)
     Returns:
         tuple: Contains:
-            - window_size (tuple): Size of attention window (height//2, width//2)
+            - window_size (tuple): Size of each of four attention windows
             - shift_size (tuple): Amount to shift window (depends on shift parameter)
             - height (int): Downsampled height
             - width (int): Downsampled width
     """
-    # discard, int, discard
     _, features, _ = n.shape
     orig_height, orig_width = orig_shape[-2:]
+    if features <= 0 or orig_height <= 0 or orig_width <= 0:
+        raise ValueError("Attention and original shapes must be positive")
 
-    downsample_ratio = int(
-        ((orig_height * orig_width) // features) ** 0.5,
+    # The U-Net can round one spatial axis differently from the other after a
+    # downsample. Find the factor pair with the closest original aspect ratio
+    # instead of assuming that the scale factor is an integer square.
+    target_ratio = orig_height / orig_width
+    candidates = tuple(
+        shape
+        for factor in range(1, math.isqrt(features) + 1)
+        if features % factor == 0
+        for shape in {(factor, features // factor), (features // factor, factor)}
     )
-    height, width = (
-        orig_height // downsample_ratio,
-        orig_width // downsample_ratio,
-    )
-    window_size = (height // 2, width // 2)
+    height, width = min(candidates, key=lambda shape: abs(math.log((shape[0] / shape[1]) / target_ratio)))
+    window_size = (max(1, math.ceil(height / 2)), max(1, math.ceil(width / 2)))
 
     match shift:
         case 0:
@@ -198,7 +216,9 @@ def apply_mswmsaa_attention(
     use_blocks |= parse_blocks("middle", middle_blocks)
     use_blocks |= parse_blocks("output", output_blocks)
 
-    window_args = last_block = last_shift = None
+    # A patcher can be reused for many samples. Keep only the pending layout for
+    # the current block, then consume it in the matching output hook.
+    pending_window_args: dict[tuple | str | None, tuple] = {}
 
     unet_patcher = unet_patcher.clone()
     kmodel: KModel = unet_patcher.model
@@ -230,43 +250,45 @@ def apply_mswmsaa_attention(
             RuntimeError: If window partitioning fails due to incompatible model patches
                          or inappropriate input resolution. Resolution should be multiple of 32 or 64.
         Notes:
-            - Function uses random shift values (0-3) for window positioning
-            - Maintains shift history to avoid consecutive same shifts
-            - Handles cases where q, k, v are the same tensor for efficiency
+            - The shift varies by sigma and transformer block without changing Forge's RNG state.
+            - Handles cases where q, k, v are the same tensor for efficiency.
         """
 
-        nonlocal window_args, last_shift, last_block
-        window_args = None
-        last_block = extra_options.get("block")
-        if last_block not in use_blocks or not check_time(
+        block = extra_options.get("block")
+        pending_window_args.pop(block, None)
+        if block not in use_blocks or not check_time(
             extra_options,
             start_sigma,
             end_sigma,
         ):
             return q, k, v
-        orig_shape = extra_options["original_shape"]
+        orig_shape = extra_options.get("original_shape")
+        if orig_shape is None:
+            logging.warning("MSW-MSA skipped %s because Forge did not provide original_shape", block)
+            return q, k, v
 
         # MSW-MSA
-        shift = int(torch.rand(1, device="cpu").item() * 4)
-
-        if shift == last_shift:
-            shift = (shift + 1) % 4
-        last_shift = shift
-        window_args = tuple(get_window_args(x, orig_shape, shift) if x is not None else None for x in (q, k, v))
+        # Vary the shift across denoising steps and transformer blocks without
+        # drawing from an RNG outside Forge's selectable RNG implementations.
+        shift = (
+            round(get_sigma(extra_options) * 10000)
+            + int(extra_options.get("transformer_index", 0))
+            + int(extra_options.get("block_index", 0))
+        ) % 4
         try:
+            window_args = tuple(get_window_args(x, orig_shape, shift) if x is not None else None for x in (q, k, v))
             if q is not None and q is k and q is v:
-                return (
-                    window_partition(
-                        q,
-                        *window_args[0],
-                    ),
-                ) * 3
-            return tuple(
+                partitioned = window_partition(q, *window_args[0])
+                pending_window_args[block] = window_args
+                return (partitioned,) * 3
+            partitioned = tuple(
                 window_partition(x, *window_args[idx]) if x is not None else None for idx, x in enumerate((q, k, v))
             )
-        except RuntimeError as exc:
-            errstr = f"MSW-MSA attention error: Incompatible model patches or bad resolution. Try using resolutions that are multiples of 32 or 64"
-            raise RuntimeError(errstr) from exc
+            pending_window_args[block] = window_args
+            return partitioned
+        except (RuntimeError, ValueError, TypeError) as exc:
+            logging.warning("MSW-MSA skipped %s because its attention shape is incompatible: %s", block, exc)
+            return q, k, v
 
     def attn1_output_patch(n: torch.Tensor, extra_options: dict[str, str]) -> torch.Tensor:
         """
@@ -282,12 +304,16 @@ def apply_mswmsaa_attention(
             defined in the outer scope. The `window_reverse` function must also be available.
         """
 
-        nonlocal window_args
-        if window_args is None or last_block != extra_options.get("block"):
-            window_args = None
+        args = pending_window_args.pop(extra_options.get("block"), None)
+        if args is None or args[0] is None:
             return n
-        args, window_args = window_args[0], None
-        return window_reverse(n, *args)
+        try:
+            return window_reverse(n, *args[0])
+        except (RuntimeError, ValueError, TypeError) as exc:
+            raise RuntimeError(
+                f"MSW-MSA could not restore block {extra_options.get('block')} "
+                f"from attention output shape {tuple(n.shape)}"
+            ) from exc
 
     unet_patcher.set_model_attn1_patch(attn1_patch)
     unet_patcher.set_model_attn1_output_patch(attn1_output_patch)
@@ -316,7 +342,7 @@ def apply_mswmsaa_attention_simple(model_type: str, model: UnetPatcher) -> UnetP
     if model_type == "SD 1.5/2.1":
         blocks: tuple[str] = ("1,2", "", "11,10,9")
     elif model_type == "SDXL":
-        blocks: tuple[str] = ("4,5", "", "5,4")
+        blocks: tuple[str] = ("4,5", "", "3,4,5")
     else:
         raise ValueError("Unknown model type")
 
