@@ -212,6 +212,8 @@ class LifecycleTests(unittest.TestCase):
         namespace = {
             "scripts": types.SimpleNamespace(Script=object),
             "StableDiffusionProcessing": object,
+            "gr": types.SimpleNamespace(Error=RuntimeError),
+            "errors": types.SimpleNamespace(report=lambda message, **kwargs: events.append(("error", message))),
             "apply_unet_patches": lambda: events.append("apply"),
             "remove_unet_patches": lambda: events.append("remove"),
             "apply_rau_net_simple": lambda *args: events.append("raunet") or args[-1],
@@ -295,10 +297,12 @@ class LifecycleTests(unittest.TestCase):
             raise ValueError("setup failed")
 
         self.namespace["apply_rau_net_simple"] = fail
-        with self.assertRaisesRegex(ValueError, "setup failed"):
-            self.script.process_before_every_sampling(self.p, *self.args())
+        self.script.process_before_every_sampling(self.p, *self.args())
+        self.assertIn(("error", "HiDiffusion setup failed: setup failed"), self.events)
+        with self.assertRaisesRegex(RuntimeError, "HiDiffusion setup failed: setup failed"):
+            self.p.sampler.sample()
         self.assertFalse(self.script.patch_applied)
-        self.assertEqual(self.events[-1], "remove")
+        self.assertEqual(self.p.sampler.sample(), "txt2img")
 
     def test_hires_fix_opt_in_applies_each_pass_and_quick_upscale(self):
         args = (*self.args(), False, True)
@@ -363,8 +367,15 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.p.extra_generation_params["raunet_ca_output_blocks"], "5")
 
         args[-1] = True
-        with self.assertRaisesRegex(ValueError, "Cross-Attention Settings.*CA output blocks are 8"):
-            self.script.process_before_every_sampling(self.p, *args)
+        self.script.process_before_every_sampling(self.p, *args)
+        with self.assertRaisesRegex(RuntimeError, "Cross-Attention Settings.*CA output blocks are 8"):
+            self.p.sampler.sample_img2img()
+        self.assertFalse(self.script.patch_applied)
+
+        args[5], args[6], args[-1] = "3", "6", False
+        self.script.process_before_every_sampling(self.p, *args)
+        with self.assertRaisesRegex(RuntimeError, "input blocks 3 require output blocks 5.*Set Output Blocks to 5"):
+            self.p.sampler.sample()
         self.assertFalse(self.script.patch_applied)
 
 
@@ -406,6 +417,13 @@ class BlockValidationTests(unittest.TestCase):
             check(patcher, "3", "4", "4", "5")
         with self.assertRaisesRegex(ValueError, "require output blocks 5"):
             check(patcher, "3", "5", "4", "4")
+
+        sd15 = types.SimpleNamespace(
+            model=types.SimpleNamespace(diffusion_model=types.SimpleNamespace(input_blocks=[()] * 12))
+        )
+        check(sd15, "3,6,9", "8,5,2", "1", "11")
+        with self.assertRaisesRegex(ValueError, "require output blocks 2,5,8"):
+            check(sd15, "3,6,9", "8,5,3", "1", "11")
 
 
 class UIControlTests(unittest.TestCase):

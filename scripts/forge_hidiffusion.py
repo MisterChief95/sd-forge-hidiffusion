@@ -1,5 +1,5 @@
 import gradio as gr
-from modules import scripts
+from modules import errors, scripts
 from modules.processing import StableDiffusionProcessing
 from modules.ui_components import InputAccordion
 from modules.script_callbacks import remove_current_script_callbacks
@@ -64,7 +64,7 @@ def validate_raunet_pairs(unet, input_blocks, output_blocks, ca_input_blocks, ca
                 )
             raise ValueError(
                 f"RAUNet > Advanced Options: input blocks {inputs or 'none'} require output blocks {needed}, "
-                f"but output blocks are {actual}."
+                f"but output blocks are {actual}. Set Output Blocks to {needed}."
             )
 
 
@@ -119,6 +119,22 @@ class ForgeHiDiffusion(scripts.Script):
 
             setattr(sampler, name, sample_with_cleanup)
 
+    def _stop_sampling(self, p, message):
+        sampler = p.sampler
+        methods = {
+            name: getattr(sampler, name)
+            for name in ("sample", "sample_img2img")
+            if callable(getattr(sampler, name, None))
+        }
+        self._sampler_methods = sampler, methods
+
+        def raise_error(*args, **kwargs):
+            self._remove_patches()
+            raise gr.Error(message)
+
+        for name in methods:
+            setattr(sampler, name, raise_error)
+
     def title(self):
         return "Forge HiDiffusion"
 
@@ -164,13 +180,13 @@ class ForgeHiDiffusion(scripts.Script):
 
                 with InputAccordion(False, label="Advanced Options") as use_raunet_advanced:
                     with gr.Group():
-                        gr.HTML(
-                            """
-                            Recommended block settings:<br>
-                            <ul><li>SD 1.5/2.1 main pairs: Input 3 / Output 8, Input 6 / Output 5, Input 9 / Output 2</li>
-                            <li>SDXL main pairs: Input 3 / Output 5, Input 6 / Output 2</li>
-                            <li>SDXL cross-attention pooling pair: Input 4 / Output 5</li></ul>
-                            """
+                        gr.Markdown(
+                            "RAUNet downsample → restore mappings for base models:\n\n"
+                            "| Model | Main input → output | Default pooling input → output |\n"
+                            "| --- | --- | --- |\n"
+                            "| SD 1.5/2.1 | 3 → 8, 6 → 5, 9 → 2 | 1 → 11 |\n"
+                            "| SDXL | 3 → 5, 6 → 2 | 4 → 5 |\n\n"
+                            "RAUNet does not select a middle block."
                         )
                         raunet_input_blocks = gr.Text(label="Input Blocks", value="3")
                         raunet_output_blocks = gr.Text(label="Output Blocks", value="5")
@@ -247,12 +263,15 @@ class ForgeHiDiffusion(scripts.Script):
                 with InputAccordion(False, label="Advanced") as use_mswmsa_advanced:
                     gr.Markdown("Advanced MSW-MSA settings. For fine-tuning performance and quality improvements.")
                     with gr.Group():
-                        gr.HTML(
-                            """
-                            Recommended block settings:<br>
-                            <ul><li>SD 1.5/2.1 attention blocks: inputs 1,2 and outputs 9,10,11</li>
-                            <li>SDXL attention blocks: inputs 4,5 and outputs 3,4,5</li></ul>
-                            """
+                        gr.Markdown(
+                            "MSW-MSA attention block correspondences (input → skip-linked output) for base models:\n\n"
+                            "| Model | Input → output | Other attention outputs | Middle |\n"
+                            "| --- | --- | --- | --- |\n"
+                            "| SD 1.5/2.1 | 1 → 10, 2 → 9; 4 → 7, 5 → 6; 7 → 4, 8 → 3 | 5, 8, 11 | 0 |\n"
+                            "| SDXL | 4 → 4, 5 → 3; 7 → 1, 8 → 0 | 2, 5 | 0 |\n\n"
+                            "Attention blocks can be selected independently; matching both sides is optional. "
+                            "The simple preset uses SD 1.5/2.1 inputs 1,2 and outputs 9,10,11, "
+                            "or SDXL inputs 4,5 and outputs 3,4,5."
                         )
                         mswmsa_input_blocks = gr.Text(label="Input Blocks", value="4,5")
                         mswmsa_middle_blocks = gr.Text(label="Middle Blocks", value="")
@@ -468,9 +487,7 @@ class ForgeHiDiffusion(scripts.Script):
                         unet,
                         (
                             ("RauNet input", "input", raunet_input_blocks, HDDownsample),
-                            ("RauNet output", "output", raunet_output_blocks, HDUpsample),
                             ("RauNet pooling input", "input", ca_input, object),
-                            ("RauNet restore output", "output", ca_output, object),
                         ),
                     )
                     validate_raunet_pairs(
@@ -479,6 +496,13 @@ class ForgeHiDiffusion(scripts.Script):
                         raunet_output_blocks,
                         ca_input,
                         ca_output,
+                    )
+                    validate_blocks(
+                        unet,
+                        (
+                            ("RauNet output", "output", raunet_output_blocks, HDUpsample),
+                            ("RauNet restore output", "output", ca_output, object),
+                        ),
                     )
                     unet = apply_rau_net(
                         unet,
@@ -567,9 +591,12 @@ class ForgeHiDiffusion(scripts.Script):
             p.sd_model.forge_objects.unet = unet
             if self.patch_applied:
                 self._remove_patches_after_sampling(p)
-        except Exception:
+        except Exception as exc:
             self._remove_patches()
-            raise
+            message = f"HiDiffusion setup failed: {exc}"
+            errors.report(message, exc_info=True)
+            self._stop_sampling(p, message)
+            return
 
         # Add debug logger
         logger.debug(
