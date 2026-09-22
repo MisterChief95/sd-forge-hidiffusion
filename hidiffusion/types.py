@@ -31,14 +31,27 @@ class HDConfigClass:
     enabled: bool = False
     start_sigma: float | None = None
     end_sigma: float | None = None
-    use_blocks: float | None = None
+    use_blocks: set[tuple[str, int]] | None = None
     two_stage_upscale: bool = True
     upscale_mode: str = UPSCALE_METHODS[0]
 
     def check(self, topts: dict[str, torch.Tensor]) -> bool:
-        if not self.enabled or not isinstance(topts, dict) or topts.get("block") not in self.use_blocks:
+        if (
+            not self.enabled
+            or not self.use_blocks
+            or not isinstance(topts, dict)
+            or topts.get("block") not in self.use_blocks
+        ):
             return False
         return check_time(topts, self.start_sigma, self.end_sigma)
+
+    def reset(self) -> None:
+        self.enabled = False
+        self.start_sigma = None
+        self.end_sigma = None
+        self.use_blocks = None
+        self.two_stage_upscale = True
+        self.upscale_mode = UPSCALE_METHODS[0]
 
 
 HD_CONFIG = HDConfigClass()
@@ -107,33 +120,27 @@ class HDDownsample(ORIG_DOWNSAMPLE):
                 Downsampled tensor using either dilated convolution or original method
     """
 
-    COPY_OP_KEYS = (
-        "parameters_manual_cast",
-        "weight_function",
-        "bias_function",
-        "weight",
-        "bias",
-    )
-
     def __init__(self, *args: list, **kwargs: dict):
         super().__init__(*args, **kwargs)
 
     def forward(self, x, transformer_options=None):
         if self.dims == 3 or not self.use_conv or not HD_CONFIG.check(transformer_options):
             return super().forward(x)
-        tempop = unet.conv_nd(
-            self.dims,
-            self.channels,
-            self.out_channels,
-            3,  # kernel size
-            stride=(4, 4),
-            padding=(2, 2),
-            dilation=(2, 2),
-        )
-        for k in self.COPY_OP_KEYS:
-            if hasattr(self.op, k):
-                setattr(tempop, k, getattr(self.op, k))
-        return tempop(x)
+        # Reuse Forge's original convolution so manual casting, offloading, and
+        # weight patches remain active.  Its convolution attributes are only read
+        # during forward and are restored immediately afterwards.
+        original_stride = self.op.stride
+        original_padding = self.op.padding
+        original_dilation = self.op.dilation
+        self.op.stride = (4, 4)
+        self.op.padding = (2, 2)
+        self.op.dilation = (2, 2)
+        try:
+            return self.op(x)
+        finally:
+            self.op.stride = original_stride
+            self.op.padding = original_padding
+            self.op.dilation = original_dilation
 
 
 # Create proxy classes that inherit from original UNet classes
@@ -142,9 +149,12 @@ class ProxyUpsample(HDUpsample):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.orig_instance = ORIG_UPSAMPLE(*args, **kwargs)
+        # Keep the fallback out of this module's child registry.  It shares the
+        # real operation below, so registering it would duplicate state_dict keys.
+        object.__setattr__(self, "orig_instance", ORIG_UPSAMPLE(*args, **kwargs))
         # Transfer weights and parameters
-        self.orig_instance.conv = self.conv
+        if self.use_conv:
+            self.orig_instance.conv = self.conv
 
     def forward(self, *args, **kwargs):
         if HD_CONFIG.enabled:
@@ -157,7 +167,7 @@ class ProxyDownsample(HDDownsample):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.orig_instance = ORIG_DOWNSAMPLE(*args, **kwargs)
+        object.__setattr__(self, "orig_instance", ORIG_DOWNSAMPLE(*args, **kwargs))
         # Transfer weights and parameters
         self.orig_instance.op = self.op
 

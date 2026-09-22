@@ -29,6 +29,34 @@ To use Forge HiDiffusion, follow these steps:
 3. **Enable Advanced Mode** (Optional):
    - For finer control, you can enable advanced mode in both the RAUNet and MSW-MSA tabs.
 
+4. **Apply during Hires Fix** (Optional):
+   - Turn on the top-level checkbox to apply HiDiffusion to Hires Fix's high-resolution second pass and Forge quick upscale. By default, regular Hires Fix applies HiDiffusion only to the first pass.
+   - RAUNet's early time range may have little effect during a low-denoise second pass; MSW-MSA can still affect later timesteps. Results and memory use depend on the final resolution.
+
+### Advanced block settings
+
+Block numbers refer to Forge's U-Net, and each control targets a different layer type. These are the default pairs for base SD models:
+
+| Model | RAUNet downsample → upsample | Additional feature pooling → restoration | MSW-MSA attention blocks |
+| --- | --- | --- | --- |
+| SD 1.5/2.1 | Input 3 → output 8 | Input 1 → output 11 | Inputs 1,2; outputs 9,10,11 |
+| SDXL | Input 3 → output 5 | Input 4 → output 5 | Inputs 4,5; outputs 3,4,5 |
+
+Additional RAUNet downsample → restore pairs are SD 1.5/2.1 input 6 → output 5 and input 9 → output 2, and SDXL input 6 → output 2. RAUNet does not select the middle block. When choosing custom RAUNet blocks, select each matching input and output pair; invalid or mismatched selections report an error.
+
+For MSW-MSA, the skip-linked input → output correspondences are:
+
+| Model | Attention input → output | Other attention output blocks | Middle block |
+| --- | --- | --- | --- |
+| SD 1.5/2.1 | 1 → 10, 2 → 9; 4 → 7, 5 → 6; 7 → 4, 8 → 3 | 5, 8, 11 | 0 |
+| SDXL | 4 → 4, 5 → 3; 7 → 1, 8 → 0 | 2, 5 | 0 |
+
+These attention blocks can be selected independently; matching both sides is optional. Middle block `0` can be entered in the MSW-MSA Middle Blocks field. Selected blocks must contain attention layers in the loaded model.
+
+Advanced RAUNet uses the matching model pooling preset unless **Use custom pooling settings** is enabled under Cross-Attention Settings. Turn it on to use the CA block and time fields. To disable pooling while using custom settings, clear both CA block fields.
+
+The time controls accept percent (0–1), training timestep (0–999), or sigma values. Percent is converted through the model's sigma schedule and does not necessarily correspond to the same fraction of sampling steps.
+
 ## Troubleshooting
 - **Common Issues**:
   - If images are not generating as expected, ensure that the dimensions are set correctly and are divisible by 64.

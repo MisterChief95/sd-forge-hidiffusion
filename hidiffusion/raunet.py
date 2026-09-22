@@ -9,7 +9,6 @@ from .logger import logger
 from .utils import (
     check_time,
     convert_time,
-    get_sigma,
     parse_blocks,
     scale_samples,
 )
@@ -40,16 +39,14 @@ def hd_apply_control(h, control, name):
     return h
 
 
-class NotFound:
-    pass
-
-
-def hd_forward_timestep_embed(ts, x, emb, *args: list, **kwargs: dict):
-    transformer_options = kwargs.get("transformer_options", NotFound)
-    output_shape = kwargs.get("output_shape", NotFound)
-    transformer_options = args[1] if transformer_options is NotFound and len(args) > 1 else {}
-    output_shape = args[2] if output_shape is NotFound and len(args) > 2 else None
-    for layer in ts:
+def hd_forward_timestep_embed(self, x, emb, context=None, transformer_options=None, output_shape=None):
+    """Forge's sequential forward path with HiDiffusion's resize-aware layers."""
+    if transformer_options is None:
+        transformer_options = {}
+    block_inner_modifiers = transformer_options.get("block_inner_modifiers", [])
+    for layer_index, layer in enumerate(self):
+        for modifier in block_inner_modifiers:
+            x = modifier(x, "before", layer, layer_index, self, transformer_options)
         if isinstance(layer, HDUpsample):
             x = layer.forward(
                 x,
@@ -58,8 +55,18 @@ def hd_forward_timestep_embed(ts, x, emb, *args: list, **kwargs: dict):
             )
         elif isinstance(layer, HDDownsample):
             x = layer.forward(x, transformer_options=transformer_options)
+        elif isinstance(layer, unet.TimestepBlock):
+            x = layer(x, emb, transformer_options)
+        elif isinstance(layer, unet.SpatialTransformer):
+            x = layer(x, context, transformer_options)
+            if "transformer_index" in transformer_options:
+                transformer_options["transformer_index"] += 1
+        elif isinstance(layer, unet.Upsample):
+            x = layer(x, output_shape=output_shape)
         else:
-            x = ORIG_FORWARD_TIMESTEP_EMBED((layer,), x, emb, *args, **kwargs)
+            x = layer(x)
+        for modifier in block_inner_modifiers:
+            x = modifier(x, "after", layer, layer_index, self, transformer_options)
     return x
 
 
@@ -94,7 +101,7 @@ def remove_unet_patches():
         None
     """
 
-    HD_CONFIG.enabled = False
+    HD_CONFIG.reset()
     unet.TimestepEmbedSequential.forward = ORIG_FORWARD_TIMESTEP_EMBED
     unet.apply_control = ORIG_APPLY_CONTROL
     logger.info("Removed UNet patches")
@@ -155,10 +162,6 @@ def apply_rau_net(
             ca_end_sigma,
         ):
             return h, hsp
-        sigma = get_sigma(extra_options)
-        block = extra_options.get("block", ("", 0))[1]
-        if sigma is not None and (block < 3 or block > 6):
-            sigma /= 16
         return (
             scale_samples(
                 h,
@@ -195,11 +198,11 @@ def configure_blocks(
             },
         },
         "SDXL": {
-            "blocks": ("4", "5"),
+            "blocks": ("3", "5"),
             "ca_blocks": ("4", "5"),
             "modes": {
                 "low": (False, None, None, None),
-                "high": (True, ("4", "5"), (0.0, 0.5), (1.0, 0.0)),
+                "high": (True, ("4", "5"), (0.0, 0.5), (0.0, 0.35)),
                 "ultra": (True, ("4", "5"), (0.0, 0.6), (0.0, 0.45)),
             },
         },
@@ -228,7 +231,7 @@ def apply_rau_net_simple(
 
     if not enabled:
         logger.debug("Disabled RAUNet due to low resolution mode")
-        return (unet_patcher.clone(),)
+        return unet_patcher.clone()
 
     prettyblocks = " / ".join(b if b else "none" for b in blocks)
     prettycablocks = " / ".join(b if b else "none" for b in ca_blocks)
